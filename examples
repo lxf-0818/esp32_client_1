@@ -1,0 +1,3 @@
+std::transform(mapKey.begin(), mapKey.end(), mapKey.begin(),
+               [](unsigned char c)
+               { return std::toupper(c); });
