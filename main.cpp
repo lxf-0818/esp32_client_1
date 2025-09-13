@@ -5,7 +5,6 @@
  * This program connects an ESP32 to a Wi-Fi network, integrates with the Blynk IoT platform,
  * and communicates with a server to fetch and display device data. It also uses an OLED display
  * to show basic information and implements a watchdog timer for system reliability.
-* foo
  * @details
  * - The program uses Blynk for IoT communication and virtual pin updates.
  * - It fetches device information from a server and processes it for display and control.
