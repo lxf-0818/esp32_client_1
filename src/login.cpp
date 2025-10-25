@@ -27,7 +27,6 @@
  * - cleartext: Buffer for storing decrypted text.
  * - ciphertext: Buffer for storing encrypted text in Base64 format.
  *
- *
  * Usage:
  * - Call aes_init() to initialize the AES library before using encryption or decryption functions.
  * - Use decryptWifiCredentials() to retrieve and decrypt WiFi credentials stored in a file.
@@ -41,10 +40,10 @@
 #include <LittleFS.h>
 #define INPUT_BUFFER_LIMIT 2048
 AESLib aesLib;
-byte aes_key[] = {0x2B, 0x7E, 0x15, 0x16, 0x28, 0xAE, 0xD2, 0xA6, 0xAB, 0xF7, 0x15, 0x88, 0x09, 0xCF, 0x4F, 0x3C};
-byte aes_iv[N_BLOCK] = {0x05, 0x18, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-byte enc_iv_to[N_BLOCK] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-byte enc_iv_from[N_BLOCK] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+byte aes_key[N_BLOCK] ;
+byte aes_iv[N_BLOCK] ;
+byte enc_iv_to[N_BLOCK] ;
+byte enc_iv_from[N_BLOCK];
 char cleartext[INPUT_BUFFER_LIMIT] = {0};      // THIS IS INPUT BUFFER (FOR TEXT)
 char ciphertext[2 * INPUT_BUFFER_LIMIT] = {0}; // THIS IS OUTPUT BUFFER (FOR BASE64-ENCODED ENCRYPTED DATA)
 
@@ -52,7 +51,8 @@ void aes_init();
 uint16_t encrypt_to_ciphertext(char *msg, byte iv[]);
 void encrypt_stub(char *str, char *str2);
 void decrypt_to_cleartext(char *msg, uint16_t msgLen, byte iv[], char *cleartext);
-int decryptWifiCredentials(char *ssid, char *psw);
+int decryptWifiCredentials(char *auth, char *ssid, char *pass);
+int readAES(char *fileName, byte data[]);
 
 void aes_init()
 {
@@ -109,8 +109,8 @@ void encrypt_stub(char *str, char *aes_encrypt)
  * @brief Decrypts a base64-encoded encrypted message into cleartext.
  *
  * This function takes an encrypted message, decrypts it using AES encryption,
- * and stores the resulting cleartext in the provided buffer. Any non-printable
- * ASCII characters (below 32) in the cleartext are replaced with '\0' to terminate
+ * and stores the resulting cleartext in the provided buffer. The 1st non-printable
+ * ASCII characters (below 32) in the cleartext is replaced with '\0' to terminate
  * the string.
  *
  * @param msg       Pointer to the base64-encoded encrypted message.
@@ -132,7 +132,7 @@ void decrypt_to_cleartext(char *msg, uint16_t msgLen, byte iv[], char *cleartext
 
   for (int j = 0; j < decLen; j++)
   {
-    // Replace any non-printable ASCII characters (below 32) with '\0' to terminate the string.
+    // Replace 1st  non-printable ASCII characters (below 32) with '\0' to terminate the string.
 
     if (cleartext[j] < 32)
     {
@@ -144,17 +144,53 @@ void decrypt_to_cleartext(char *msg, uint16_t msgLen, byte iv[], char *cleartext
     }
   }
 }
-
-int decryptWifiCredentials(char *ssid, char *pass)
+/**
+ * @brief Decrypts Wi-Fi credentials (SSID and password) and retrieves the Blynk authentication token.
+ * 
+ * This function reads encrypted Wi-Fi credentials and a Blynk authentication token from the file system,
+ * decrypts the credentials, and stores the results in the provided buffers.
+ * 
+ * @param auth Pointer to a character array where the Blynk authentication token will be stored.
+ * @param ssid Pointer to a character array where the decrypted Wi-Fi SSID will be stored.
+ * @param pass Pointer to a character array where the decrypted Wi-Fi password will be stored.
+ * @return int Returns 0 on success, or 2 if the encrypted credentials file cannot be opened.
+ * 
+ * @note This function relies on the LittleFS file system and assumes the existence of specific files:
+ *       - "/blynkAuth.txt" for the Blynk authentication token.
+ *       - "/aes.txt" for the AES encryption key.
+ *       - "/iv.txt" for the AES initialization vector.
+ *       - "/ssid_pass_aes.txt" for the encrypted Wi-Fi credentials.
+ * 
+ * @warning If the file system cannot be mounted or required files are missing, the function will
+ *          restart the ESP device.
+ * 
+ * @warning The function assumes that the provided buffers are large enough to hold the respective
+ *          strings. Ensure proper buffer sizes to avoid buffer overflows.
+ */
+int decryptWifiCredentials(char * auth ,char *ssid, char *pass)
 {
-  String ssid_psw_aes;
+  String ssid_psw_aes,tmp;
+
   bool success = LittleFS.begin();
   if (!success)
   {
     Serial.println("Error mounting the file system");
-    return 1;
+    ESP.restart();
   }
-  File file = LittleFS.open("/ssid_pass_aes.txt", "r");
+  File file = LittleFS.open("/blynkAuth.txt", "r");
+  if (!file)
+  {
+    Serial.println("Failed to open blynkAuth.txt file for reading");
+    ESP.restart();
+  }
+  tmp.clear();
+  while (file.available())
+    tmp.concat(static_cast<char>(file.read()));
+  strcpy(auth, tmp.c_str());
+
+  readAES((char *)"/aes.txt", aes_key);
+  readAES((char *)"/iv.txt", aes_iv);
+   file = LittleFS.open("/ssid_pass_aes.txt", "r");
   if (!file)
   {
     Serial.println("Failed to open ssid_pass_aes.txt file for reading");
@@ -165,12 +201,35 @@ int decryptWifiCredentials(char *ssid, char *pass)
     ssid_psw_aes.concat(static_cast<char>(file.read()));
 
   file.close();
-
-  decrypt_to_cleartext((char *)ssid_psw_aes.c_str(), ssid_psw_aes.length(), aes_iv, cleartext);
+  // save a copy decrypt_to_cleartext() corrupts byte array aes_iv!
+  memcpy(enc_iv_to, aes_iv, sizeof(aes_iv));
+  decrypt_to_cleartext((char *)ssid_psw_aes.c_str(), ssid_psw_aes.length(), enc_iv_to, cleartext);
   String temp = cleartext;
   int index = temp.indexOf(":");
   strcpy(ssid, (temp.substring(0, index)).c_str());
   strcpy(pass, (temp.substring(index + 1)).c_str());
 
+  return 0;
+}
+int readAES(char *fileName, byte data[])
+{
+  File file = LittleFS.open(fileName, "r");
+  if (!file)
+  {
+    Serial.println("Failed to open /aes.txt file for reading");
+    return 2;
+  }
+  String key;
+  while (file.available())
+    key.concat(static_cast<char>(file.read()));
+
+  int foo, i = 0;
+  char *token = strtok((char *)key.c_str(), ",");
+  while (token != NULL)
+  {
+    sscanf(token, "%x", &foo); // convert ASCII string to hex 0xYY
+    data[i++] = foo;
+    token = strtok(NULL, ",");
+  }
   return 0;
 }
