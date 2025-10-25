@@ -41,7 +41,7 @@
 #include <map>
 #define NO_UPDATE_FAIL 0
 #define INPUT_BUFFER_LIMIT 2048
-#define NO_SOCKET_AES
+// #define NO_SOCKET_AES
 #define MAX_LINE_LENGTH 120
 #define PORT 8888
 
@@ -62,7 +62,7 @@ void decrypt_to_cleartext(char *msg, uint16_t msgLen, byte iv[], char *cleartext
 
 /**
  * @brief Establishes a socket connection to a server, sends a command, and processes the response.
- * 
+ *
  * @param espServer A pointer to a character array containing the server address.
  * @param command A pointer to a character array containing the command to send to the server.
  * @param updateErrorQueue A boolean flag indicating whether to update the error recovery queue in case of failure.
@@ -137,27 +137,34 @@ int socketClient(char *espServer, char *command, bool updateErrorQueue)
         str[index++] = client.read(); // read sensor data from sever
     client.stop();
 
-    // TODO: need to debug  not working 1/11/25 the server encrypted the data correctly but fails decryption on the client
-#ifndef NO_SOCKET_AES
-    memcpy(enc_iv_to, aes_iv, sizeof(aes_iv));
-    decrypt_to_cleartext(str, strlen(str), enc_iv_to, cleartext);
-    String copyStr = String(cleartext);
-    Serial.printf("clear text %s copy str %s", cleartext, copyStr.c_str());
-#else
-    String copyStr = str;
-#endif
     int calculatedCrc;
+    String copyStr = str;
+
+    client.stop();
     index = copyStr.indexOf(":");
     String crcString = copyStr.substring(0, index);
-    sscanf(crcString.c_str(), "%x", &calculatedCrc);
+    sscanf(crcString.c_str(), "%x", &calculatedCrc); //convert ASCII string to hex 0xYY
     String parsed = copyStr.substring(index + 1);
     crc.add((uint8_t *)parsed.c_str(), parsed.length());
     if (calculatedCrc != crc.calc())
     {
         lastMsg = "CRC invalid " + String(espServer);
-        socketRecovery(espServer, command); // write to error recovery queque
+        if (updateErrorQueue)
+        {
+            socketRecovery(espServer, command); // write to error recovery queque
+            failSocket++;
+        }
         return 3;
     }
+    
+#ifndef NO_SOCKET_AES
+    // make a copy decrypt_to_cleartext() corrupts byte array aes_iv!
+    memcpy(enc_iv_to, aes_iv, sizeof(aes_iv));
+    decrypt_to_cleartext((char *)parsed.c_str(), parsed.length(), enc_iv_to, cleartext);
+    parsed = String(cleartext);
+#endif
+
+
     // crc passed !
     memset(tokens, 0, sizeof(tokens));
     char *token = strtok((char *)parsed.c_str(), ",");
@@ -174,7 +181,7 @@ int socketClient(char *espServer, char *command, bool updateErrorQueue)
 
         token = strtok(NULL, ",");
     }
-//#define DEBUG_TOKENS
+// #define DEBUG_TOKENS
 #ifdef DEBUG_TOKENS
     printTokens(tokens);
 #endif
@@ -199,7 +206,7 @@ int socketClient(char *espServer, char *command, bool updateErrorQueue)
  *       If a sensor code is not found in the mapping, the function continues to next.
  * @note A previous bug related to "Stack canary" exceptions was resolved by increasing the stack size.
  * @note A previous bug related to "Stack canary" exceptions was resolved by increasing the stack size.
-*/
+ */
 void processSensorData(float tokens[5][5], bool updateErrorQueue)
 {
     const std::map<int, const char *> sensorMap =
@@ -209,8 +216,7 @@ void processSensorData(float tokens[5][5], bool updateErrorQueue)
             {58, "BMP280"},
             {44, "SHT35"},
             {48, "ADS1115"},
-            {28, "DS1"}
-        }; 
+            {28, "DS1"}};
 
     char sensor[10];
 

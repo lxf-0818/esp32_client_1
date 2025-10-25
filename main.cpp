@@ -1,4 +1,5 @@
-/**
+/**   
+ * 
  * @file main.cpp
  * @brief ESP32 client application using Blynk and OLED display for IoT monitoring and control.
  *
@@ -9,7 +10,7 @@
  * - The program uses Blynk for IoT communication and virtual pin updates.
  * - It fetches device information from a server and processes it for display and control.
  * - A loop watchdog timer (LWD) is implemented to reboot the system in case of a hang.
- * - The program supports updating widgets and the Blynk with sensor data and managing device connections.
+ * - The program supports updating Blynk widgets with sensor data and managing device connections.
  *
  * @dependencies
  * - Arduino core for ESP32
@@ -67,7 +68,8 @@
 #include <Adafruit_SSD1306.h>
 #include "blynk_widget.h"
 #include <Ticker.h>
-#include <Wire.h> /*Wire library Included*/
+#include <Wire.h>
+#include <LittleFS.h>
 
 #define INPUT_BUFFER_LIMIT 2048
 #define SCREEN_WIDTH 128 // OLED display width, in pixels
@@ -85,9 +87,9 @@ bool checkSSD();
 
 void refreshWidgets();
 void getBootTime(char *lastBook, char *strReason);
-void getSensorData(const String &sensorsConnected);
+int getSensorData(const String &sensorsConnected);
 String performHttpGet(const char *url);
-int decryptWifiCredentials(char *ssid, char *psw);
+int decryptWifiCredentials(char *auth, char *ssid, char *psw);
 int socketClient(char *espServer, char *command, bool updateErorrQue);
 char *socketClient(char *espServer, char *command);
 void upDateWidget(char *sensorName, float tokens[]);
@@ -98,7 +100,6 @@ bool isServerConnected(const char *serverIP, uint16_t port = 8888);
 void generateInterrupt();
 void printUptime();
 String getIP(String sensorName);
-String _getIP(String sensorName);
 void printTokens(float tokens[5][5]);
 
 std::map<std::string, std::string> ipMap;
@@ -122,29 +123,36 @@ const char *deleteAll = "http://192.168.1.252/deleteALL.php";
 const char *ipList = "http://192.168.1.252/ip.php";
 const char *ipDelete = "http://192.168.1.252/deleteIP.php";
 const char *esp_data = "http://192.168.1.252/esp-data.php";
-// Red, green, and blue pins for PWM control
-const int redPin = 13;   // 13 corresponds to GPIO13
-const int greenPin = 12; // 12 corresponds to GPIO12
-const int bluePin = 14;  // 14 corresponds to GPIO14
 
-// Setting PWM frequency, channels and bit resolution
-const int freq = 5000;
-const int redChannel = 0;
-const int greenChannel = 1;
-const int blueChannel = 2;
-// Bit resolution 2^8 = 256
-const int resolution = 8;
-
+/**
+ * @brief Sets up the initial configuration for the ESP32 client application.
+ *
+ * This function initializes the serial communication, decrypts Wi-Fi credentials,
+ * connects to the Blynk server, checks and flashes the OLED SSD if connected,
+ * sets up a timer for refreshing widgets, initializes the RTOS, and configures
+ * the lightweight watchdog timer (LWDT).
+ *
+ * Steps performed:
+ * - Initializes serial communication at 115200 baud rate.
+ * - Decrypts Wi-Fi credentials and connects to the Blynk server using the provided authentication token.
+ * - Checks if the OLED SSD is connected and flashes it if necessary.
+ * - Sets up a timer to refresh widgets every 20 seconds.
+ * - Initializes the RTOS for multitasking.
+ * - Feeds the lightweight watchdog timer to prevent resets.
+ * - Attaches a callback routine to the LWDT ticker to handle timeout events.
+ */
 void setup()
 {
   Serial.begin(115200);
-  char auth[] = BLYNK_AUTH_TOKEN;
+  char auth[50];
+  // = "Z1kJtYwbYfKjPOEsLoXMeeTo8DZiq85H";
   char ssid[40], pass[40];
   lastMsg = "no warnings";
-
-  decryptWifiCredentials(ssid, pass);
+  String tmp;
+  if (decryptWifiCredentials(auth, ssid, pass))
+    ESP.restart();
   Blynk.begin(auth, ssid, pass);
-  if (checkSSD())  //  is OLED SSD connected? 
+  if (checkSSD()) //  is OLED SSD connected?
     flashSSD();
 
   // Serial.println("Turned off timer");
@@ -191,17 +199,23 @@ void flashSSD()
  *
  * @note If the HTTP GET request fails or no sensors are connected, the function logs an error
  *       message and exits early.
- */
+ * */
 void refreshWidgets() // called every x seconds by SimpleTimer
 {
   char tmp[256];
   String sensorsConnected = performHttpGet(ipList);
   if (sensorsConnected.isEmpty())
   {
-    Serial.println("Failed to fetch sensors from mySQL or No devices connected to network");
+    sprintf(tmp, "Failed to fetch sensors from mySQL ");
+    Blynk.virtualWrite(V39, tmp);
     return;
   }
-  getSensorData(sensorsConnected); //
+  if (!getSensorData(sensorsConnected))
+  {
+    sprintf(tmp, "No devices connected to network");
+    Blynk.virtualWrite(V39, tmp);
+    return;
+  }
 
   if (lastSensorsConnected != sensorsConnected)
   {
@@ -212,8 +226,9 @@ void refreshWidgets() // called every x seconds by SimpleTimer
       sprintf(tmp, "\tSensor: %s, IP: %s\n", pair.first.c_str(), pair.second.c_str());
       Blynk.virtualWrite(V42, tmp);
     }
+    sprintf(tmp, "\n\tenter 'list' for valid commands\n");
+    Blynk.virtualWrite(V42, tmp);
     lastSensorsConnected = sensorsConnected;
-    Serial.printf("..\n");
   }
 
   Blynk.virtualWrite(V7, passSocket);
@@ -222,6 +237,19 @@ void refreshWidgets() // called every x seconds by SimpleTimer
   Blynk.virtualWrite(V34, retry);
   Blynk.virtualWrite(V39, lastMsg);
 }
+/**
+ * @brief Callback function that is triggered when the device connects to the Blynk server.
+ *
+ * This function performs the following tasks:
+ * - Resets the counters for failed and recovered socket connections, as well as retry attempts.
+ * - Checks the connection status to the Blynk server. If not connected, it restarts the ESP device.
+ * - Logs the connection status to the serial monitor.
+ * - Sends the last boot time, reset reason, and other diagnostic data to specific virtual pins on the Blynk server.
+ * - Performs an HTTP GET request to retrieve data, processes the response, and updates the corresponding virtual pin.
+ * - Refreshes widgets and updates the passSocket value based on the HTTP response.
+ *
+ * @note If the HTTP request fails, the function logs an error message and exits early.
+ */
 BLYNK_CONNECTED()
 {
 
@@ -252,7 +280,7 @@ BLYNK_CONNECTED()
   else
   {
     lastSensorsConnected = ""; // force output
-    refreshWidgets(); //
+    refreshWidgets();
     passSocket = payload.toInt();
     Blynk.virtualWrite(V7, passSocket);
 
@@ -334,21 +362,21 @@ void lwdtFeed(void)
 }
 
 /**
- * @brief Updates the Blynk widgets with sensor data based on the sensor type.
+ * @brief Updates the widget values in the Blynk application based on the sensor data.
  *
- * @param sensor A character pointer representing the name of the sensor
- *               (e.g., "BME280", "SHT35", "ADS1115").
- * @param tokens An array of float values containing sensor data. The specific
- *               indices used depend on the sensor type:
- *               - For "BME280": tokens[1] is temperature, tokens[2] is humidity.
- *               - For "SHT35": tokens[1] is temperature, tokens[2] is humidity.
- *               - For "ADS1115": tokens[1] is the gauge value.
+ * This function takes the sensor name and an array of floating-point values (tokens)
+ * representing sensor readings. It updates the corresponding virtual pins in the Blynk
+ * application to display the sensor data.
  *
- * @note This function uses the Blynk.virtualWrite() method to send data to
- *       specific virtual pins in the Blynk app:
- *       - "BME280": V4 (temperature), V6 (humidity).
- *       - "SHT35": V5 (temperature), V15 (humidity).
- *       - "ADS1115": GAUGE_HOUSE (gauge value).
+ * @param sensor A character pointer to the name of the sensor (e.g., "BME280", "BMP390", "SHT35", "ADS1115").
+ * @param tokens An array of floating-point values representing the sensor readings.
+ *               The specific indices used depend on the sensor type.
+ *
+ * @note The function supports the following sensors:
+ *       - "BME280" or "BMP390": Updates temperature (V4). If "BME280" or "SHT35", also updates humidity (V6).
+ *       - "ADS1115": Updates a gauge (GAUGE_HOUSE) and another virtual pin (V43) based on calculations.
+ *
+ * @note Debugging information can be enabled by defining DEBUG_W, which prints sensor data to the Serial monitor.
  */
 void upDateWidget(char *sensor, float tokens[])
 {
@@ -378,8 +406,8 @@ void upDateWidget(char *sensor, float tokens[])
   // }
   if (localSensorName == "ADS1115")
   {
-    Blynk.virtualWrite(GAUGE_HOUSE, tokens[1] * tokens[3]);
-    Blynk.virtualWrite(V43, tokens[2]);
+    Blynk.virtualWrite(V2, tokens[1] * tokens[3]); // display Jackery Volt
+    Blynk.virtualWrite(V43, tokens[2]);            // display v++ for esp32
 
     return;
   }
@@ -436,7 +464,7 @@ String performHttpGet(const char *url)
  *
  * @note If the `socketClient` function fails for a device, an error message is printed to the serial monitor.
  */
-void getSensorData(const String &sensorsConnected)
+int getSensorData(const String &sensorsConnected)
 {
 
   String rows = sensorsConnected.substring(0, sensorsConnected.indexOf("|"));
@@ -457,8 +485,8 @@ void getSensorData(const String &sensorsConnected)
     int index2 = deviceConn.indexOf("|");
     String ip = deviceConn.substring(index + 1, index2);
     String sensorName = deviceConn.substring(index1 + 1, index);
-    // Store the IP address in the map
-    ipMap[sensorName.c_str()] = ip.c_str();
+
+    ipMap[sensorName.c_str()] = ip.c_str(); // Store the IP address in the mapB
 #ifdef DEBUG
     Serial.printf("Sensor: %s, IP: %s\n", sensorName.c_str(), ip.c_str());
 #endif
@@ -473,6 +501,7 @@ void getSensorData(const String &sensorsConnected)
     Serial.printf("device connect %s \n ", deviceConn.c_str());
 #endif
   } // end for
+  return numberOfRows;
 }
 /**
  * @brief Handles input from the Blynk terminal widget.
@@ -493,6 +522,9 @@ void getSensorData(const String &sensorsConnected)
  */
 BLYNK_WRITE(V42)
 {
+  String validCommand[] = {"list", "reboot", "ping", "up", "adc", "bme", "bmx"};
+  char tmp[100];
+  int numberOfElements = sizeof(validCommand) / sizeof(validCommand[0]);
 
   String input = param.asStr(); // Read the input string from the terminal
   if (input.isEmpty())
@@ -501,10 +533,17 @@ BLYNK_WRITE(V42)
     return;
   }
   input.toLowerCase();
-  // for (char &c : input)
-  //   c = tolower(static_cast<unsigned char>(c));
 
   Serial.printf("Received from terminal: %s\n", input.c_str());
+  if (input.startsWith("list"))
+  {
+    for (int i = 0; i < numberOfElements; i++)
+    {
+      Serial.println(validCommand[i]);
+      sprintf(tmp, "%s %s", validCommand[i].c_str(), "\n");
+      Blynk.virtualWrite(V42, tmp);
+    }
+  }
   if (input.startsWith("reboot"))
   {
     Serial.println("Reboot command received. Restarting...");
@@ -516,7 +555,6 @@ BLYNK_WRITE(V42)
 
   else if (input.startsWith("bmx") || input.startsWith("bme") || input.startsWith("adc"))
   {
-    char tmp[100];
     String label = "Temp", postFix = "F";
     if (input.startsWith("adc"))
     {
@@ -525,12 +563,12 @@ BLYNK_WRITE(V42)
     }
     bool foundValidIP = false;
 
-    String ip = getIP(input.c_str());
+    String ip = getIP(input.substring(0, 3).c_str());
     if (ip.isEmpty())
       sprintf(tmp, "invalid ip@ for sensor %s ", input.c_str());
     else
     {
-      sprintf(tmp, "ip %s for %s \n", ip.c_str(), input.c_str());
+      // sprintf(tmp, "ip %s for %s \n", ip.c_str(), input.c_str());
       if (socketClient((char *)ip.c_str(), (char *)"ALL", 1))
         Serial.println("socketClient() failed");
       else
@@ -561,19 +599,27 @@ BLYNK_WRITE(V42)
     {
       alive = dead = 0;
       sprintf(tmp, "%s %s:\n", pair.first.c_str(), pair.second.c_str());
-      for (int j = 0; j < 4; j++)
+      for (int j = 0; j < 4; j++) // ping 4 times per element in ipMap
       {
         if (isServerConnected(pair.second.c_str()))
           alive++;
         else
           dead++;
       }
+
       sprintf(tmp1, "\tpass %d dead %d  time: %lu ms\n", alive, dead, millis() - start);
       strcat(tmp, tmp1);
       Blynk.virtualWrite(V42, tmp);
+      if (dead)
+        // #D3435C - Blynk RED
+        Blynk.setProperty(V42, "color", "#D3435C");
+      // else
+      //   // #43d3b4ff - Blynk Green
+      //   Blynk.setProperty(V42, "color", "#43d3b4ff");
     }
+    // ping http
     sprintf(tmp, "%s\n", ipList);
-    start = millis();
+
     alive = dead = 0;
     start = millis();
     for (int j = 0; j < 4; j++)
@@ -620,12 +666,11 @@ void printUptime()
 /**
  * @brief Checks if a server is reachable by attempting to establish a connection.
  *
- * This function attempts to connect to a server using the specified IP address
- * and port. If the connection is successful, it immediately closes the connection
- * and returns true, indicating that the server is reachable. Otherwise, it returns
- * false.
+ * This function creates a temporary WiFi client and tries to connect to the specified
+ * server IP address and port. If the connection is successful, it immediately closes
+ * the connection and returns true. Otherwise, it returns false.
  *
- * @param serverIP The IP address of the server as a null-terminated string.
+ * @param serverIP The IP address of the server to connect to (as a C-style string).
  * @param port The port number of the server to connect to.
  * @return true If the server is reachable.
  * @return false If the server is not reachable.
@@ -683,41 +728,31 @@ bool checkSSD()
  * This function searches through a map of sensor names and their corresponding
  * IP addresses, performing a case-insensitive comparison to find a match. If a match
  * is found, the associated IP address is returned. If no match is found, the function
- * returns "foo".
+ * returns empty string "".
  *
  * @param sensorName The name of the sensor to look up.
  * @return String The IP address of the sensor if found, or "foo" if not found.
  */
+// #define DEBUG_
 String getIP(String sensorName)
 {
-  String sensorKey = sensorName, returnString = "";
+  String sensorKey = sensorName, returnIPstring = "", mapKey;
   sensorKey.toUpperCase();
   for (const auto &pair : ipMap)
   {
-    String mapKey = (pair.first.c_str());
-    mapKey.toUpperCase();
 #ifdef DEBUG_
     char tmp[100];
     sprintf(tmp, "Sensor %s ip %s\n", pair.first.c_str(), pair.second.c_str());
     Blynk.virtualWrite(V42, tmp);
 #endif
+    mapKey = pair.first.c_str();
+    mapKey.toUpperCase();
     if (sensorKey == mapKey)
     {
-      returnString = pair.second.c_str();
+      returnIPstring = pair.second.c_str();
       break;
     }
   }
-  return returnString;
-}
-String _getIP(String sensorName)
-{
-  for (const auto &pair : ipMap)
-  {
-
-    String mapKey = pair.first.c_str();
-    if (mapKey.equalsIgnoreCase(sensorName.c_str()))
-      return pair.second.c_str();
-  }
-  Serial.println("still F");
-  return "foo";
+  // Serial.printf("sensorKey %s_ mapKey %s_\n", sensorKey.c_str(), mapKey.c_str());
+  return returnIPstring;
 }
