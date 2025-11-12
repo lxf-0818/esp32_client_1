@@ -1,5 +1,4 @@
-/**   
- * kkkkk
+/**
  * @file main.cpp
  * @brief ESP32 client application using Blynk and OLED display for IoT monitoring and control.
  *
@@ -68,7 +67,6 @@
 #include <Adafruit_SSD1306.h>
 #include "blynk_widget.h"
 #include <Ticker.h>
-#include <Wire.h>
 #include <LittleFS.h>
 
 #define INPUT_BUFFER_LIMIT 2048
@@ -253,7 +251,6 @@ void refreshWidgets() // called every x seconds by SimpleTimer
 BLYNK_CONNECTED()
 {
 
-  failSocket = recoveredSocket = retry = 0;
   bool isconnected = Blynk.connected();
   if (isconnected == false)
   {
@@ -266,10 +263,11 @@ BLYNK_CONNECTED()
   getBootTime(lastBoot, strReason);
   Blynk.virtualWrite(V25, lastBoot);
   Blynk.virtualWrite(V26, strReason);
-  Blynk.virtualWrite(V20, failSocket);
-  Blynk.virtualWrite(V19, recoveredSocket);
-  Blynk.virtualWrite(V34, retry);
+  Blynk.virtualWrite(V20, 0);
+  Blynk.virtualWrite(V19, 0);
+  Blynk.virtualWrite(V34, 0);
   Blynk.virtualWrite(V39, "boot");
+  Blynk.setProperty(V42, "color", "#0fc212ff");
 
   String payload = performHttpGet(getRowCnt);
   if (payload.isEmpty())
@@ -700,6 +698,18 @@ void generateInterrupt()
   lwdtcb();       // Manually call the ISR for testing
   interrupts();   // Re-enable interrupts
 }
+/**
+ * @brief Checks for the presence of an SSD1306 OLED display on the I2C bus.
+ *
+ * This function initializes the I2C communication, attempts to communicate with the
+ * SSD1306 OLED display at the specified address (SSD_ADDR), and verifies if the device
+ * is present. If the device is found, it initializes the display and prints a success
+ * message to the serial monitor. If the device is not found or initialization fails,
+ * an appropriate message is printed to the serial monitor.
+ *
+ * @return true if the SSD1306 OLED display is found and initialized successfully,
+ *         false otherwise.
+ */
 bool checkSSD()
 {
   byte error;

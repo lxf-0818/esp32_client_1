@@ -165,7 +165,7 @@ int socketClient(char *espServer, char *command, bool updateErrorQueue)
 #endif
 
 
-    // crc passed !
+    // crc passed now tokenize the data from the server 
     memset(tokens, 0, sizeof(tokens));
     char *token = strtok((char *)parsed.c_str(), ",");
     int j = 0, z = 0;
