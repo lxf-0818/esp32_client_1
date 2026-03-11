@@ -124,6 +124,7 @@ void encrypt_stub(char *str, char *aes_encrypt)
  */
 void decrypt_to_cleartext(char *msg, uint16_t msgLen, byte iv[], char *cleartext)
 {
+//#define DEBUG
 #ifdef ESP8266
   // Serial.print("[decrypt_to_cleartext] free heap: ");
   ESP.getFreeHeap();
@@ -143,33 +144,36 @@ void decrypt_to_cleartext(char *msg, uint16_t msgLen, byte iv[], char *cleartext
       break;
     }
   }
+#ifdef DEBUG
+  Serial.printf("Encrypt %s  ClearTxt %s \n", msg, cleartext);
+#endif
 }
 /**
  * @brief Decrypts Wi-Fi credentials (SSID and password) and retrieves the Blynk authentication token.
- * 
+ *
  * This function reads encrypted Wi-Fi credentials and a Blynk authentication token from the file system,
  * decrypts the credentials, and stores the results in the provided buffers.
- * 
+ *
  * @param auth Pointer to a character array where the Blynk authentication token will be stored.
  * @param ssid Pointer to a character array where the decrypted Wi-Fi SSID will be stored.
  * @param pass Pointer to a character array where the decrypted Wi-Fi password will be stored.
  * @return int Returns 0 on success, or 2 if the encrypted credentials file cannot be opened.
- * 
+ *
  * @note This function relies on the LittleFS file system and assumes the existence of specific files:
  *       - "/blynkAuth.txt" for the Blynk authentication token.
  *       - "/aes.txt" for the AES encryption key.
  *       - "/iv.txt" for the AES initialization vector.
  *       - "/ssid_pass_aes.txt" for the encrypted Wi-Fi credentials.
- * 
+ *
  * @warning If the file system cannot be mounted or required files are missing, the function will
  *          restart the ESP device.
- * 
+ *
  * @warning The function assumes that the provided buffers are large enough to hold the respective
  *          strings. Ensure proper buffer sizes to avoid buffer overflows.
  */
-int decryptWifiCredentials(char * auth ,char *ssid, char *pass)
+int decryptWifiCredentials(char *auth, char *ssid, char *pass)
 {
-  String ssid_psw_aes,tmp;
+  String ssid_psw_aes, tmp;
 
   bool success = LittleFS.begin();
   if (!success)
@@ -190,7 +194,7 @@ int decryptWifiCredentials(char * auth ,char *ssid, char *pass)
 
   readAES((char *)"/aes.txt", aes_key);
   readAES((char *)"/iv.txt", aes_iv);
-   file = LittleFS.open("/ssid_pass_aes.txt", "r");
+  file = LittleFS.open("/ssid_pass_aes.txt", "r");
   if (!file)
   {
     Serial.println("Failed to open ssid_pass_aes.txt file for reading");
