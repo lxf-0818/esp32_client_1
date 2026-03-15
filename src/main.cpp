@@ -210,14 +210,15 @@ void refreshWidgets() // called every x seconds by SimpleTimer
   }
   if (!getSensorData(sensorsConnected))
   {
-    sprintf(tmp, "No devices connected to network");
+    sprintf(tmp, "No sensors connected to network");
     Blynk.virtualWrite(V39, tmp);
     return;
   }
 
-  if (lastSensorsConnected != sensorsConnected)
+  if (lastSensorsConnected != sensorsConnected) // update Blynk terminal when IP list changes
   {
-    Blynk.virtualWrite(V42, "\nStart:\n"); // clear Blynk terminal
+    lastSensorsConnected = sensorsConnected;
+    Blynk.virtualWrite(V42, "\nStart:\n"); 
     for (const auto &pair : ipMap)
     {
       Serial.printf("Sensor: %s, IP: %s\n", pair.first.c_str(), pair.second.c_str());
@@ -226,7 +227,6 @@ void refreshWidgets() // called every x seconds by SimpleTimer
     }
     sprintf(tmp, "\n\tenter 'list' for valid commands\n");
     Blynk.virtualWrite(V42, tmp);
-    lastSensorsConnected = sensorsConnected;
   }
 
   Blynk.virtualWrite(V7, passSocket);
@@ -263,9 +263,9 @@ BLYNK_CONNECTED()
   getBootTime(lastBoot, strReason);
   Blynk.virtualWrite(V25, lastBoot);
   Blynk.virtualWrite(V26, strReason);
-  Blynk.virtualWrite(V20, 0);
-  Blynk.virtualWrite(V19, 0);
-  Blynk.virtualWrite(V34, 0);
+  Blynk.virtualWrite(VFAIL, 0);   // reset failed socket
+  Blynk.virtualWrite(VRECOV, 0);  //   "   recover
+  Blynk.virtualWrite(VRETRY, 0);  //   "   retry 
   Blynk.virtualWrite(V39, "boot");
   Blynk.setProperty(V42, "color", "#0fc212ff");
 
@@ -472,20 +472,21 @@ int getSensorData(const String &sensorsConnected)
   Serial.printf("list of devices: %s", sensorsConnected.c_str()); // warning "\n" in sensorConnected string
 #endif
 
-  String deviceConn = sensorsConnected.substring(sensorsConnected.indexOf("|") + 1,
+  String sensorConnected = sensorsConnected.substring(sensorsConnected.indexOf("|") + 1,
                                                  sensorsConnected.lastIndexOf("|"));
 
   ipMap.clear(); // if sensor was removed (failed to connect) need to clear!!!!!
   for (int i = 0; i < numberOfRows; i++)
   {
-    int index = deviceConn.indexOf(":");
-    int index1 = deviceConn.indexOf(",");
-    int index2 = deviceConn.indexOf("|");
-    String ip = deviceConn.substring(index + 1, index2);
-    String sensorName = deviceConn.substring(index1 + 1, index);
+    int index = sensorConnected.indexOf(":");
+    int index1 = sensorConnected.indexOf(",");
+    int index2 = sensorConnected.indexOf("|");
+    String ip = sensorConnected.substring(index + 1, index2);
+    String sensorName = sensorConnected.substring(index1 + 1, index);
 
-    ipMap[sensorName.c_str()] = ip.c_str(); // Store the IP address in the mapB
-#ifdef DEBUG
+    ipMap[sensorName.c_str()] = ip.c_str(); // Store the IP address in the map
+   // #define DEBUG_
+#ifdef DEBUG_1
     Serial.printf("Sensor: %s, IP: %s\n", sensorName.c_str(), ip.c_str());
 #endif
 
@@ -494,9 +495,9 @@ int getSensorData(const String &sensorsConnected)
       Serial.println("socketClient() failed");
     }
 
-    deviceConn = deviceConn.substring(index2 + 1); // Move to the next device in string
+    sensorConnected = sensorConnected.substring(index2 + 1); // Move to the next device in string
 #ifdef DEBUG
-    Serial.printf("device connect %s \n ", deviceConn.c_str());
+    Serial.printf("device connect %s \n ", sensorConnected.c_str());
 #endif
   } // end for
   return numberOfRows;
@@ -521,7 +522,7 @@ int getSensorData(const String &sensorsConnected)
 BLYNK_WRITE(V42)
 {
   String validCommand[] = {"list", "reboot", "ping", "up", "adc", "bme", "bmx"};
-  char tmp[100];
+  char tmp[130];
   int numberOfElements = sizeof(validCommand) / sizeof(validCommand[0]);
 
   String input = param.asStr(); // Read the input string from the terminal

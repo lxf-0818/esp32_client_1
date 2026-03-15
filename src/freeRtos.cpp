@@ -355,8 +355,9 @@ void taskSocketRecov(void *pvParameters)
                 xSemaphoreTake(xMutex_sock, portMAX_DELAY);
                 vTaskDelay(xDelay);
                 retry++;
-                // Serial.printf("socket error %s %s \n", socketQue.ipAddr, socketQue.cmd);
-                int x = (*socketQue.fun_ptr)(socketQue.ipAddr, socketQue.cmd, NO_UPDATE_FAIL);
+
+                // do not update socket stats in recovery mode
+                int x = (*socketQue.fun_ptr)(socketQue.ipAddr, socketQue.cmd, NO_UPDATE_FAIL); 
                 if (!x)
                 {
                     recoveredSocket++;

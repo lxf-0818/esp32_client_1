@@ -78,7 +78,7 @@ void decrypt_to_cleartext(char *msg, uint16_t msgLen, byte iv[], char *cleartext
  * 1. Attempts to connect to the server using the provided address and PORT.
  * 2. Sends the specified command to the server if the connection is successful.
  * 3. Waits for a response from the server with a timeout of 5 seconds.
- * 4. Reads the response data and optionally decrypts it if AES encryption is enabled.
+ * 4. Reads the response data and decrypts (optionally it if AES encryption is enabled).
  * 5. Validates the response using CRC to ensure data integrity.
  * 6. Parses the response data into tokens and processes the sensor data.
  *
@@ -89,7 +89,6 @@ void decrypt_to_cleartext(char *msg, uint16_t msgLen, byte iv[], char *cleartext
  *
  * @warning Ensure that the server address and command strings are properly null-terminated.
  *
- * @todo Debug and fix the decryption logic as it is currently not working.
  */
 int socketClient(char *espServer, char *command, bool updateErrorQueue)
 {
@@ -105,7 +104,7 @@ int socketClient(char *espServer, char *command, bool updateErrorQueue)
         {                                       // don't update if in recovery mode ie last i/o failed
             socketRecovery(espServer, command); // current failed write to error recovery queue
             failSocket++;
-            Serial.printf(">>> failed to connect: %s!\n", espServer);
+            Serial.printf(">>> failed to connect: %s\n", espServer);
             lastMsg = "failed to connect " + String(espServer);
         }
         return 1;

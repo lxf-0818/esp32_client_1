@@ -4,4 +4,6 @@
 #define TEMPV5 V5
 #define R_DIV V3
 #define BLINK_TST V9
-#define FS_BLY_TXT V20
+#define VRECOV V19
+#define VFAIL V20
+#define VRETRY V34
