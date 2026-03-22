@@ -116,11 +116,11 @@ String lastSensorsConnected = "";
 #define LWD_TIMEOUT 15 * 1000 // Reboot if loop watchdog timer reaches this time out value
 unsigned long lwdTime = 0;
 unsigned long lwdTimeout = LWD_TIMEOUT;
-const char *getRowCnt = "http://192.168.1.252/rows.php";
-const char *deleteAll = "http://192.168.1.252/deleteALL.php";
-const char *ipList = "http://192.168.1.252/ip.php";
-const char *ipDelete = "http://192.168.1.252/deleteIP.php";
-const char *esp_data = "http://192.168.1.252/esp-data.php";
+const char *getRowCnt = "http://192.168.1.13/rows.php";
+const char *deleteAll = "http://192.168.1.13/deleteALL.php";
+const char *ipList = "http://192.168.1.13/ip.php";
+const char *ipDelete = "http://192.168.1.13/deleteIP.php";
+const char *esp_data = "http://192.168.1.13/esp-data.php";
 
 /**
  * @brief Sets up the initial configuration for the ESP32 client application.

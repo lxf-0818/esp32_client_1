@@ -213,7 +213,7 @@ int socketRecovery(char *IP, char *cmd2Send)
         else if (ret == errQUEUE_FULL)
         {
             Serial.println(".......unable to send data to socket  Queue is Full");
-            String phpScript = "http://192.168.1.252/deleteMAC.php?key=" + (String)IP;
+            String phpScript = "http://192.168.1.13/deleteMAC.php?key=" + (String)IP;
             deleteRow(phpScript); // delete 
             //Blynk.logEvent("");
             xQueueReset(QueSocket_Handle);
@@ -260,7 +260,7 @@ void taskSQL_HTTP(void *pvParameters)
     HTTPClient http;
     // mysql includes
     WiFiClient client_sql;
-    String serverName = "http://192.168.1.252/post-esp-data.php";
+    String serverName = "http://192.168.1.13/post-esp-data.php";
     int passPost = 0, failPost = 0, recovered = 0;
     uint32_t http_delay = *((uint32_t *)pvParameters);
     TickType_t xDelay = http_delay / portTICK_PERIOD_MS;
@@ -286,7 +286,7 @@ void taskSQL_HTTP(void *pvParameters)
                 }
                 else
                 {
-                    String phpScript = "http://192.168.1.252/delete.php?key=" + message.key;
+                    String phpScript = "http://192.168.1.13/delete.php?key=" + message.key;
                     Serial.println(phpScript);
                     failPost++;
                     int j = 0, rc = 0;
@@ -365,7 +365,7 @@ void taskSocketRecov(void *pvParameters)
                     Serial.printf("passSocket %d failSocket %d  recovered %d retry %d \n", passSocket, failSocket, recoveredSocket, retry);
                 }
                 else
-                    socketRecovery(socketQue.ipAddr, socketQue.cmd); //  ********SEND Fail to que here for recovery****
+                    socketRecovery(socketQue.ipAddr, socketQue.cmd); //  write Fail to que here for recovery****
                 xSemaphoreGive(xMutex_sock);
             }
         }
@@ -429,7 +429,7 @@ void setupHTTP_request(String sensorName, float tokens[])
             /*  Serial.println(" msg struct send to QueSocket sucessfully"); */
         }
         else if (ret == errQUEUE_FULL)
-            Serial.println(".......unable to send data to htpp Queue is Full");
+            Serial.println(".......unable to send data to htpp Queue it's Full");
     }
 }
 /**
