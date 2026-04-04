@@ -16,7 +16,7 @@
  *   allocated buffer containing the server's response.
  *
  * @note
- * - The `NO_SOCKET_AES` macro disables AES decryption for socket communication.
+ * - The `SOCKET_AES` macro enables AES decryption for socket communication.
  * - The `DEBUG` macro enables debug output for token printing.
  * - The file uses a map to associate sensor ids with their corresponding sensor names.
  *
@@ -41,7 +41,7 @@
 #include <map>
 #define NO_UPDATE_FAIL 0
 #define INPUT_BUFFER_LIMIT 2048
-// #define NO_SOCKET_AES
+#define SOCKET_AES
 #define MAX_LINE_LENGTH 120
 #define PORT 8888
 
@@ -156,7 +156,7 @@ int socketClient(char *espServer, char *command, bool updateErrorQueue)
         return 3;
     }
     
-#ifndef NO_SOCKET_AES
+#ifdef SOCKET_AES
     // make a copy decrypt_to_cleartext() corrupts byte array aes_iv!
     memcpy(enc_iv_to, aes_iv, sizeof(aes_iv));
     decrypt_to_cleartext((char *)parsed.c_str(), parsed.length(), enc_iv_to, cleartext);
@@ -203,7 +203,6 @@ int socketClient(char *espServer, char *command, bool updateErrorQueue)
  *
  * @note The function uses a predefined mapping of sensor codes to sensor names for identification.
  *       If a sensor code is not found in the mapping, the function continues to next.
- * @note A previous bug related to "Stack canary" exceptions was resolved by increasing the stack size.
  * @note A previous bug related to "Stack canary" exceptions was resolved by increasing the stack size.
  */
 void processSensorData(float tokens[5][5], bool updateErrorQueue)

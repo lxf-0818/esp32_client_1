@@ -116,11 +116,11 @@ String lastSensorsConnected = "";
 #define LWD_TIMEOUT 15 * 1000 // Reboot if loop watchdog timer reaches this time out value
 unsigned long lwdTime = 0;
 unsigned long lwdTimeout = LWD_TIMEOUT;
-const char *getRowCnt = "http://192.168.1.13/rows.php";
-const char *deleteAll = "http://192.168.1.13/deleteALL.php";
-const char *ipList = "http://192.168.1.13/ip.php";
-const char *ipDelete = "http://192.168.1.13/deleteIP.php";
-const char *esp_data = "http://192.168.1.13/esp-data.php";
+const char *getRowCnt = "http://192.168.1.252/rows.php";
+const char *deleteAll = "http://192.168.1.252/deleteALL.php";
+const char *ipList = "http://192.168.1.252/ip.php";
+const char *ipDelete = "http://192.168.1.252/deleteIP.php";
+const char *esp_data = "http://192.168.1.252/esp-data.php";
 
 /**
  * @brief Sets up the initial configuration for the ESP32 client application.
@@ -215,10 +215,10 @@ void refreshWidgets() // called every x seconds by SimpleTimer
     return;
   }
 
-  if (lastSensorsConnected != sensorsConnected) // update Blynk terminal when IP list changes
+  if (lastSensorsConnected != sensorsConnected) // only update Blynk terminal when IP list changes
   {
     lastSensorsConnected = sensorsConnected;
-    Blynk.virtualWrite(V42, "\nStart:\n"); 
+    Blynk.virtualWrite(V42, "\nStart:\n");
     for (const auto &pair : ipMap)
     {
       Serial.printf("Sensor: %s, IP: %s\n", pair.first.c_str(), pair.second.c_str());
@@ -263,9 +263,9 @@ BLYNK_CONNECTED()
   getBootTime(lastBoot, strReason);
   Blynk.virtualWrite(V25, lastBoot);
   Blynk.virtualWrite(V26, strReason);
-  Blynk.virtualWrite(VFAIL, 0);   // reset failed socket
-  Blynk.virtualWrite(VRECOV, 0);  //   "   recover
-  Blynk.virtualWrite(VRETRY, 0);  //   "   retry 
+  Blynk.virtualWrite(VFAIL, 0);  // reset failed socket
+  Blynk.virtualWrite(VRECOV, 0); //   "   recover
+  Blynk.virtualWrite(VRETRY, 0); //   "   retry
   Blynk.virtualWrite(V39, "boot");
   Blynk.setProperty(V42, "color", "#0fc212ff");
 
@@ -473,7 +473,7 @@ int getSensorData(const String &sensorsConnected)
 #endif
 
   String sensorConnected = sensorsConnected.substring(sensorsConnected.indexOf("|") + 1,
-                                                 sensorsConnected.lastIndexOf("|"));
+                                                      sensorsConnected.lastIndexOf("|"));
 
   ipMap.clear(); // if sensor was removed (failed to connect) need to clear!!!!!
   for (int i = 0; i < numberOfRows; i++)
@@ -485,7 +485,7 @@ int getSensorData(const String &sensorsConnected)
     String sensorName = sensorConnected.substring(index1 + 1, index);
 
     ipMap[sensorName.c_str()] = ip.c_str(); // Store the IP address in the map
-   // #define DEBUG_
+                                            // #define DEBUG_
 #ifdef DEBUG_1
     Serial.printf("Sensor: %s, IP: %s\n", sensorName.c_str(), ip.c_str());
 #endif
