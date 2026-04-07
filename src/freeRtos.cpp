@@ -407,13 +407,16 @@ void setupHTTP_request(String sensorName, float tokens[])
     String apiKeyValue = "tPmAT5Ab3j7F9";
     String sensorLocation = "HOME";
     extern int passSocket;
+    float tmp = tokens[1];
+    if (sensorName.indexOf("ADS1115") >=0)
+        tmp *= tokens[3];
 
     if (QueHTTP_Handle != NULL && uxQueueSpacesAvailable(QueHTTP_Handle) > 0)
     {
         String httpRequestData = "api_key=" + apiKeyValue;
         httpRequestData += "&sensor=" + sensorName;
         httpRequestData += "&location=" + sensorLocation;
-        httpRequestData += "&value1=" + String(tokens[1]);
+        httpRequestData += "&value1=" + String(tmp);
         httpRequestData += "&value2=" + String(tokens[2]);
         httpRequestData += "&value3=" + String(passSocket) + "";
 #ifdef DEBUG

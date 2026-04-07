@@ -277,7 +277,6 @@ BLYNK_CONNECTED()
   }
   else
   {
-    lastSensorsConnected = ""; // force output
     refreshWidgets();
     passSocket = payload.toInt();
     Blynk.virtualWrite(V7, passSocket);
@@ -485,7 +484,7 @@ int getSensorData(const String &sensorsConnected)
     String sensorName = sensorConnected.substring(index1 + 1, index);
 
     ipMap[sensorName.c_str()] = ip.c_str(); // Store the IP address in the map
-                                            // #define DEBUG_
+   // #define DEBUG_1
 #ifdef DEBUG_1
     Serial.printf("Sensor: %s, IP: %s\n", sensorName.c_str(), ip.c_str());
 #endif
@@ -496,6 +495,7 @@ int getSensorData(const String &sensorsConnected)
     }
 
     sensorConnected = sensorConnected.substring(index2 + 1); // Move to the next device in string
+
 #ifdef DEBUG
     Serial.printf("device connect %s \n ", sensorConnected.c_str());
 #endif
