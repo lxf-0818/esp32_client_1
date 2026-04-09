@@ -1,0 +1,115 @@
+# ESP32 Client Documentation
+
+## Overview
+This project is an ESP32-based IoT client that:
+- Connects to Wi-Fi using encrypted credentials stored in LittleFS.
+- Connects to Blynk Cloud and updates multiple virtual pins.
+- Polls a local HTTP API for active sensor devices.
+- Opens socket connections to ESP sensor nodes to fetch telemetry.
+- Displays basic status on an SSD1306 OLED over I2C.
+- Uses a loop watchdog timer to reboot on loop stalls.
+
+Main runtime code is in src/main.cpp.
+
+## Build Environment
+PlatformIO environment:
+- env name: esp32dev
+- board: esp32dev
+- framework: arduino
+- filesystem: littlefs
+- partitions: huge_app.csv
+- monitor speed: 115200
+- build flags: -Wall -Wextra -Werror
+- build type: debug
+
+Configured in platformio.ini.
+
+## Project Structure
+- src/main.cpp: App entry, Blynk handlers, widget refresh, OLED, watchdog logic.
+- src/socketClient.cpp: Sensor socket I/O and token parsing.
+- src/login.cpp: Wi-Fi credential decryption and login support.
+- src/freeRtos.cpp: RTOS task startup and scheduling support.
+- src/misc.cpp: Shared utility helpers.
+- src/rollBack.cpp: Error queue handling and recovery helpers.
+- src/blynk_widget.h: Virtual pin IDs and widget constants.
+- data/: Runtime config blobs in LittleFS (AES key, IV, auth token, API URL, encrypted SSID/password).
+
+## Runtime Flow
+1. setup() starts Serial, decrypts Wi-Fi credentials, and starts Blynk.
+2. setup() checks OLED and shows startup info if display is present.
+3. setup() schedules refreshWidgets() every 20 seconds.
+4. setup() initializes RTOS support and starts loop watchdog ticker.
+5. loop() continuously runs lwdtFeed(), Blynk.run(), and timer.run().
+6. refreshWidgets() fetches current sensor list from HTTP, updates sensor map, and updates Blynk stats.
+7. Sensor data is read via socketClient() and forwarded to matching Blynk widgets.
+
+## Blynk Integration
+Important handlers in src/main.cpp:
+- BLYNK_CONNECTED(): Writes boot metadata, resets counters, loads initial stats.
+- BLYNK_WRITE(V42): Terminal command parser.
+- BLYNK_WRITE(V18): Removes stale IP data on server side.
+- BLYNK_WRITE(BLINK_TST): Sends BLK test command to all known nodes.
+
+### Terminal Commands on V42
+- list: show valid commands
+- reboot: save queue status and reboot
+- up: print uptime
+- adc | bme | bmx: query selected sensor type and print latest value
+- refr: force widget refresh and reset counters
+- ping: test TCP and HTTP reachability metrics
+
+## Network Endpoints
+The client currently uses fixed local endpoints in src/main.cpp:
+- rows.php
+- deleteALL.php
+- ip.php
+- deleteIP.php
+- esp-data.php
+
+If your server IP changes, update these constants.
+
+## Data Model Summary
+- ipMap (std::map<string, string>): sensorName -> ipAddress.
+- tokens[5][5]: parsed sensor value matrix from socket payloads.
+- passSocket/failSocket/recoveredSocket/retry: communication health counters.
+- lastSensorsConnected: previous ip list to avoid unnecessary Blynk terminal spam.
+
+## Watchdog Behavior
+A software loop watchdog is implemented with Ticker:
+- lwdtFeed() updates loop heartbeat timing.
+- lwdtcb() reboots if loop timing exceeds LWD_TIMEOUT.
+- Timeout is currently 15000 ms.
+
+## Filesystem Configuration
+LittleFS data files expected in data/:
+- aes.txt
+- iv.txt
+- blynkAuth.txt
+- api.txt
+- ssid_pass_aes.txt
+
+Upload filesystem data before first boot if values are missing.
+
+## Security Notes
+- Do not commit real tokens, keys, or passwords.
+- Move Blynk auth token and API host into encrypted files or build flags if possible.
+- Consider replacing plain HTTP with authenticated HTTPS where hardware and server resources allow.
+
+## Common PlatformIO Commands
+From project root:
+
+pio run
+pio run -t upload
+pio device monitor
+pio run -t uploadfs
+
+## Troubleshooting
+- If upload fails but build passes, verify COM port and USB cable stability.
+- If Blynk stays offline, validate decrypted SSID/password and internet reachability.
+- If no sensors appear, test ip.php endpoint response and local LAN routing.
+- If frequent reboots occur, inspect watchdog logs on serial monitor and reduce blocking work in loop callbacks.
+
+## Recommended Next Improvements
+- Move hardcoded HTTP endpoint host into data/api.txt and load at startup.
+- Add retries and timeout metrics around HTTP GET and socket operations.
+- Add unit tests for parser logic in getSensorData() and command parsing in BLYNK_WRITE(V42).

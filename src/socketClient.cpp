@@ -93,8 +93,8 @@ void decrypt_to_cleartext(char *msg, uint16_t msgLen, byte iv[], char *cleartext
 int socketClient(char *espServer, char *command, bool updateErrorQueue)
 {
     extern float tokens[5][5];
-    char str[80];
-    bzero(str, 80);
+    char str[200];
+    bzero(str, 200);
     WiFiClient client;
     CRC32 crc;
 

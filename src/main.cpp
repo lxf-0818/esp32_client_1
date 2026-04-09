@@ -572,7 +572,10 @@ BLYNK_WRITE(V42)
         Serial.println("socketClient() failed");
       else
       {
-        sprintf(tmp, "%s %f %s \n", label.c_str(), tokens[0][1], postFix.c_str());
+        float ftmp = tokens[0][1];
+        if (input.startsWith("adc"))
+          ftmp *= tokens[0][3];
+        sprintf(tmp, "%s %f %s \n", label.c_str(), ftmp, postFix.c_str());
         foundValidIP = true;
       }
     }
