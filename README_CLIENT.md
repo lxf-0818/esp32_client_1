@@ -27,8 +27,11 @@ Configured in platformio.ini.
 ## Project Structure
 - src/main.cpp: App entry, Blynk handlers, widget refresh, OLED, watchdog logic.
 - src/socketClient.cpp: Sensor socket I/O and token parsing.
+- docs/socketClient.md: Detailed socket protocol, CRC/AES handling, and recovery behavior reference.
 - src/login.cpp: Wi-Fi credential decryption and login support.
+- docs/login.md: Detailed AES, LittleFS credential loading, and Wi-Fi decrypt flow reference.
 - src/freeRtos.cpp: RTOS task startup and scheduling support.
+- docs/freeRtos.md: Detailed FreeRTOS task, queue, mutex, and recovery flow reference.
 - src/misc.cpp: Shared utility helpers.
 - src/rollBack.cpp: Error queue handling and recovery helpers.
 - src/blynk_widget.h: Virtual pin IDs and widget constants.
