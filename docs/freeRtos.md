@@ -1,8 +1,7 @@
 # freeRtos.cpp
 
 ## Purpose
-Runs background tasks for queue-driven recovery and SQL HTTP posting, isolated from the
-main Blynk loop to reduce blocking behavior.
+Runs background tasks for queue-driven recovery and SQL HTTP posting, isolated from the main Blynk loop to reduce blocking behavior.
 
 ## Core Objects
 - QueSocket_Handle: queue for failed socket operations
