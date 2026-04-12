@@ -56,7 +56,7 @@ void setupHTTP_request(String sensorName, float tokens[]);
 int socketRecovery(char *IP, char *cmd2Send);
 int socketClient(char *espServer, char *command, bool updateErrorQueue);
 void upDateWidget(char *sensor, float tokens[]);
-void processSensorData(float tokens[5][5], bool updateErrorQueue);
+void processSensorData(float tokens[5][5]);
 void printTokens(float tokens[5][5]);
 void decrypt_to_cleartext(char *msg, uint16_t msgLen, byte iv[], char *cleartext);
 
@@ -184,7 +184,7 @@ int socketClient(char *espServer, char *command, bool updateErrorQueue)
 #ifdef DEBUG_TOKENS
     printTokens(tokens);
 #endif
-    processSensorData(tokens, updateErrorQueue);
+    processSensorData(tokens);
 
     return 0;
 }
@@ -198,14 +198,11 @@ int socketClient(char *espServer, char *command, bool updateErrorQueue)
  *
  * @param tokens A 2D array of sensor data, where each row represents a sensor's data.
  *               The first element in each row is the sensor code (as a float).
- * @param updateErrorQueue A boolean flag indicating whether to update the error queue.
- *                         (Currently unused due to a resolved bug.)
- *
  * @note The function uses a predefined mapping of sensor codes to sensor names for identification.
  *       If a sensor code is not found in the mapping, the function continues to next.
  * @note A previous bug related to "Stack canary" exceptions was resolved by increasing the stack size.
  */
-void processSensorData(float tokens[5][5], bool updateErrorQueue)
+void processSensorData(float tokens[5][5])
 {
     const std::map<int, const char *> sensorMap =
         {

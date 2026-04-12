@@ -14,7 +14,7 @@ and dispatches them to widgets and SQL queue handlers.
 Expected server response for sensor reads:
 `<crc_hex>:<payload>`
 
-If SOCKET_AES is enabled, payload is AES/base64 and must be decrypted before parsing.
+If SOCKET_AES is enabled by default, payload is AES/base64 and must be decrypted before parsing.
 
 ## Main APIs
 
@@ -34,15 +34,15 @@ Flow:
 6. verify CRC32
 7. decrypt payload when SOCKET_AES is defined
 8. tokenize records into `tokens[5][5]`
-9. call processSensorData(tokens, updateErrorQueue)
+9. call processSensorData(tokens)
 
-If failures occur and updateErrorQueue is true, it enqueues recovery via socketRecovery.
+If failures occur , it enqueues recovery via socketRecovery.
 
 ### socketClient(espServer, command)
 Overload for control commands that returns malloc-allocated response buffer.
 Caller must free returned memory.
 
-### processSensorData(tokens, updateErrorQueue)
+### processSensorData(tokens)
 Maps sensor IDs to names and forwards each row to:
 - setupHTTP_request(sensorName, values)
 - upDateWidget(sensorName, values)
