@@ -2,7 +2,7 @@
 
 ## Purpose
 Implements TCP client communication from ESP32 to ESP8266 sensor servers on port 8888.
-It requests sensor data, validates integrity, optionally decrypts payload, parses values,
+It requests sensor data, validates integrity, decrypts payload, parses values,
 and dispatches them to widgets and SQL queue handlers.
 
 ## Protocol
