@@ -648,7 +648,7 @@ BLYNK_WRITE(V46)
   }
   // else if (input.startsWith("test"))
   else {
-    sprintf(tmp, "command %s not vaild \nEnter list for valid cmds in terminal \nOr retype \n",input.c_str());
+    sprintf(tmp, "command %s not vaild \n",input.c_str());
     Blynk.virtualWrite(V46, tmp);
   }
 
