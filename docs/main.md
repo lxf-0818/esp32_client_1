@@ -22,7 +22,8 @@ Primary ESP32 client runtime for Blynk integration, server polling, sensor fetch
 2. parse with `getSensorData()` into `ipMap`
 3. socket poll each server with `ALL`
 4. update Blynk terminal (V46) only when sensor list changes
-5. update Blynk counters (V7, V20, V19, V34, V39)
+5. update Blynk counters (V7, V20, V19, V34) and last message (V47)
+6. on error, writes status to V39 and returns early
 
 ## Blynk Handlers
 - `BLYNK_CONNECTED()`: boot state, reset counters, initial sync, fetch row count
@@ -41,11 +42,13 @@ Supported terminal commands:
 - `ds1` — fetch DS18B20 temperature reading
 - `refr` — force widget refresh and reset fail/recover/retry counters
 
+Unrecognised commands return an error message to the terminal.
+
 ## Helper Functions
 - `performHttpGet(url)` — HTTP GET wrapper, returns response string or empty on failure
 - `getSensorData(sensorsConnected)` — parses `"count|name:ip|..."` string into `ipMap`, socket-polls each device
 - `upDateWidget(sensor, tokens[])` — writes sensor values to Blynk virtual pins; supports BME280, BMP390, SHT35, ADS1115
-- `getIP(sensorName)` — case-insensitive lookup of sensor name → IP from `ipMap`
+- `getIP(sensorName)` — case-insensitive **substring** lookup of sensor name → IP from `ipMap` (e.g. `"bme"` matches `"BME280"`)
 - `isServerConnected(serverIP, port)` — TCP connect/disconnect reachability check (default port 8888)
 - `printUptime()` — formats and writes uptime to Blynk terminal (V46) and Serial
 - `checkSSD()` — I2C probe for SSD1306 OLED at `0x3C`
@@ -66,8 +69,9 @@ Supported terminal commands:
 | V25 | — | write | Last boot time |
 | V26 | — | write | Reset reason |
 | V34 | VRETRY | write | retry counter |
-| V39 | — | write | Last status / warning message |
+| V39 | — | write | Error / boot status messages |
 | V46 | — | read/write | Terminal (command input + output) |
+| V47 | — | write | Last status / warning message (`lastMsg`, updated each refresh cycle) |
 | V43 | — | write | ESP32 supply voltage (ADS1115: tokens[2]) |
 
 ## Server Endpoints
