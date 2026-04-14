@@ -21,13 +21,13 @@ Primary ESP32 client runtime for Blynk integration, server polling, sensor fetch
 1. GET sensor list from `ip.php` via `performHttpGet()`
 2. parse with `getSensorData()` into `ipMap`
 3. socket poll each server with `ALL`
-4. update Blynk terminal (V42) only when sensor list changes
+4. update Blynk terminal (V46) only when sensor list changes
 5. update Blynk counters (V7, V20, V19, V34, V39)
 
 ## Blynk Handlers
 - `BLYNK_CONNECTED()`: boot state, reset counters, initial sync, fetch row count
 - `BLYNK_WRITE(V18)`: purge IP state from backend via `ipDelete`
-- `BLYNK_WRITE(V42)`: terminal command parser (see below)
+- `BLYNK_WRITE(V46)`: terminal command parser (see below)
 - `BLYNK_WRITE(BLINK_TST)`: send `BLK` command to all known nodes in `ipMap`
 
 Supported terminal commands:
@@ -47,7 +47,7 @@ Supported terminal commands:
 - `upDateWidget(sensor, tokens[])` — writes sensor values to Blynk virtual pins; supports BME280, BMP390, SHT35, ADS1115
 - `getIP(sensorName)` — case-insensitive lookup of sensor name → IP from `ipMap`
 - `isServerConnected(serverIP, port)` — TCP connect/disconnect reachability check (default port 8888)
-- `printUptime()` — formats and writes uptime to Blynk terminal (V42) and Serial
+- `printUptime()` — formats and writes uptime to Blynk terminal (V46) and Serial
 - `checkSSD()` — I2C probe for SSD1306 OLED at `0x3C`
 - `flashSSD()` — displays "ESP32 Client PIO" and local IP on OLED
 - `generateInterrupt()` — manually invokes watchdog ISR for testing
@@ -67,7 +67,7 @@ Supported terminal commands:
 | V26 | — | write | Reset reason |
 | V34 | VRETRY | write | retry counter |
 | V39 | — | write | Last status / warning message |
-| V42 | — | read/write | Terminal (command input + output) |
+| V46 | — | read/write | Terminal (command input + output) |
 | V43 | — | write | ESP32 supply voltage (ADS1115: tokens[2]) |
 
 ## Server Endpoints
