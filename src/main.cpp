@@ -202,7 +202,7 @@ void refreshWidgets() // called every x seconds by SimpleTimer
 {
   char tmp[256];
   String sensorsConnected = performHttpGet(ipList);
-  //Serial.printf("sensor connrcted %s\n", sensorsConnected.c_str());
+  // Serial.printf("sensor connrcted %s\n", sensorsConnected.c_str());
   if (sensorsConnected.isEmpty())
   {
     sprintf(tmp, "Failed to fetch sensors from mySQL ");
@@ -484,8 +484,8 @@ int getSensorData(const String &sensorsConnected)
     String ip = sensorConnected.substring(index + 1, index2);
     String sensorName = sensorConnected.substring(index1 + 1, index);
 
-    ipMap[sensorName.c_str()] = ip.c_str(); // update map with IP address , used downstream for connecting to server 
-   // #define DEBUG_1
+    ipMap[sensorName.c_str()] = ip.c_str(); // update map with IP address , used downstream for connecting to server
+                                            // #define DEBUG_1
 #ifdef DEBUG_1
     Serial.printf("Sensor: %s, IP: %s\n", sensorName.c_str(), ip.c_str());
 #endif
@@ -522,8 +522,9 @@ int getSensorData(const String &sensorsConnected)
  */
 BLYNK_WRITE(V46)
 {
-  String validCommand[] = {"list", "reboot", "ping", "up", "adc", "bme", "bmx","ds1"};
+  String validCommand[] = {"list", "reboot", "ping", "up", "adc", "bme", "bmx", "ds1"};
   char tmp[130];
+
   int numberOfElements = sizeof(validCommand) / sizeof(validCommand[0]);
 
   String input = param.asStr(); // Read the input string from the terminal
@@ -535,6 +536,7 @@ BLYNK_WRITE(V46)
   input.toLowerCase();
 
   Serial.printf("Received from terminal: %s\n", input.c_str());
+
   if (input.startsWith("list"))
   {
     for (int i = 0; i < numberOfElements; i++)
@@ -553,7 +555,7 @@ BLYNK_WRITE(V46)
   else if (input.startsWith("up"))
     printUptime();
 
-  else if (input.startsWith("bmx") || input.startsWith("bme") || input.startsWith("adc")|| input.startsWith("ds1"))
+  else if (input.startsWith("bmx") || input.startsWith("bme") || input.startsWith("adc") || input.startsWith("ds1"))
   {
     String label = "Temp", postFix = "F";
     if (input.startsWith("adc"))
@@ -561,11 +563,11 @@ BLYNK_WRITE(V46)
       label = "Volt";
       postFix = "V";
     }
-    bool foundValidIP = false;
+    bool rc = false;
 
     String ip = getIP(input.substring(0, 3).c_str());
     if (ip.isEmpty())
-      sprintf(tmp, "invalid ip@ for sensor %s ", input.c_str());
+      sprintf(tmp, "invalid ip@ for sensor %s \n", input.c_str());
     else
     {
       // sprintf(tmp, "ip %s for %s \n", ip.c_str(), input.c_str());
@@ -577,12 +579,13 @@ BLYNK_WRITE(V46)
         if (input.startsWith("adc"))
           ftmp *= tokens[0][3];
         sprintf(tmp, "%s %f %s \n", label.c_str(), ftmp, postFix.c_str());
-        foundValidIP = true;
+        rc = true;
       }
-    }
 
-    if (!foundValidIP)
-      sprintf(tmp, "ERROR: No valid IP found for sensor %s\n", input.c_str());
+      if (!rc)
+        sprintf(tmp, "socketClient() failed for sensor %s\n", input.c_str());
+    }
+    
 
     Blynk.virtualWrite(V46, tmp);
   }
@@ -606,7 +609,7 @@ BLYNK_WRITE(V46)
     {
       alive = dead = 0;
       sprintf(tmp, "%s %s:\n", pair.first.c_str(), pair.second.c_str());
-      for (int j = 0; j < 4; j++) 
+      for (int j = 0; j < 4; j++)
       {
         if (isServerConnected(pair.second.c_str()))
           alive++;
@@ -617,12 +620,7 @@ BLYNK_WRITE(V46)
       sprintf(tmp1, "\tpass %d dead %d  time: %lu ms\n", alive, dead, millis() - start);
       strcat(tmp, tmp1);
       Blynk.virtualWrite(V46, tmp);
-      if (dead)
-        // #D3435C - Blynk RED
-        Blynk.setProperty(V46, "color", "#D3435C");
-      // else
-      //   // #43d3b4ff - Blynk Green
-      //   Blynk.setProperty(V46, "color", "#43d3b4ff");
+    
     }
     // ping http
     sprintf(tmp, "%s\n", ipList);
@@ -649,6 +647,11 @@ BLYNK_WRITE(V46)
     //   }
   }
   // else if (input.startsWith("test"))
+  else {
+    sprintf(tmp, "command %s not vaild \nEnter list for valid cmds in terminal \nOr retype \n",input.c_str());
+    Blynk.virtualWrite(V46, tmp);
+  }
+
 }
 void printUptime()
 {
@@ -766,7 +769,7 @@ String getIP(String sensorName)
 #endif
     mapKey = pair.first.c_str();
     mapKey.toUpperCase();
-    if (mapKey.indexOf(sensorKey)>=0)
+    if (mapKey.indexOf(sensorKey) >= 0)
     {
       returnIPstring = pair.second.c_str();
       break;
