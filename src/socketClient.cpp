@@ -184,7 +184,8 @@ int socketClient(char *espServer, char *command, bool updateErrorQueue)
 #ifdef DEBUG_TOKENS
     printTokens(tokens);
 #endif
-    processSensorData(tokens);
+    if (updateErrorQueue)
+        processSensorData(tokens);
 
     return 0;
 }
