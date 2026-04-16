@@ -34,13 +34,20 @@ Flow:
 6. verify CRC32
 7. decrypt payload when SOCKET_AES is defined
 8. tokenize records into `tokens[5][5]`
-9. call processSensorData(tokens)
+9. call processSensorData(tokens) only when `updateErrorQueue == true`
 
-If failures occur , it enqueues recovery via socketRecovery.
+Failure handling:
+- if `updateErrorQueue == true`: enqueue recovery via `socketRecovery()` and increment `failSocket`
+- if `updateErrorQueue == false`: return error code without queue/counter updates
 
 ### socketClient(espServer, command)
 Overload for control commands that returns malloc-allocated response buffer.
 Caller must free returned memory.
+
+Current limits/behavior:
+- waits up to 35 seconds for first bytes
+- allocates a fixed 80-byte response buffer
+- restarts ESP32 if malloc fails
 
 ### processSensorData(tokens)
 Maps sensor IDs to names and forwards each row to:
@@ -70,3 +77,8 @@ Tokenizer writes numeric values into a fixed 5x5 float matrix.
 ## Integration Points
 Called from refresh/update flow in src/main.cpp during widget refresh cycles.
 Works together with FreeRTOS queue tasks in src/freeRtos.cpp.
+
+Specific usage in `main.cpp`:
+- `refreshWidgets()` / `getSensorData()` call `socketClient(ip, "ALL", 1)` for normal polling
+- terminal command handler calls `socketClient(ip, "ALL", 0)` for ad-hoc user reads
+- blink-test path uses `socketClient(ip, "BLK")` overload and frees returned buffer

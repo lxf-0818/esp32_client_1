@@ -50,11 +50,8 @@
  */
 #define BLYNK_TEMPLATE_ID "TMPL21W-vgTej"
 #define BLYNK_TEMPLATE_NAME "autoStart"
-#define BLYNK_AUTH_TOKEN "Z1kJtYwbYfKjPOEsLoXMeeTo8DZiq85H"
+//#define BLYNK_AUTH_TOKEN moved token to secured  /data 
 
-// #define BLYNK_TEMPLATE_ID "TMPL2sDJhOygV"
-// #define BLYNK_TEMPLATE_NAME "House"
-// #define BLYNK_AUTH_TOKEN "3plcY4yZM3HpnupyR5nmnDlUcXADV9sU"
 #include <Arduino.h>
 #include <map>
 #include <FS.h>
@@ -73,9 +70,7 @@
 #define SCREEN_WIDTH 128 // OLED display width, in pixels
 #define SCREEN_HEIGHT 64 // OLED display height, in pixels
 #define BLYNK_PRINT Serial
-// #define DEBUG_LIST
-// #define DEBUG
-//  #define TEMPV6 V6 // Define TEMPV6 as virtual pin V6
+
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 #define SSD_ADDR 0x3c
 
@@ -144,7 +139,6 @@ void setup()
 {
   Serial.begin(115200);
   char auth[50];
-  // = "Z1kJtYwbYfKjPOEsLoXMeeTo8DZiq85H";
   char ssid[40], pass[40];
   lastMsg = "no warnings";
   String tmp;
@@ -160,6 +154,12 @@ void setup()
   lwdtFeed();
   lwdTicker.attach_ms(LWD_TIMEOUT, lwdtcb); // attach lwdt callback routine to Ticker object
 }
+/**
+ * @brief Main runtime loop for the ESP32 client.
+ *
+ * Continuously feeds the loop watchdog timer, processes Blynk events, and runs
+ * scheduled timer callbacks (including periodic widget refresh tasks).
+ */
 void loop()
 {
   lwdtFeed();
@@ -173,6 +173,12 @@ void loop()
   // }
 }
 
+/**
+ * @brief Renders a startup/status screen on the OLED display.
+ *
+ * Clears the SSD1306 buffer, prints basic device identity text, and shows the
+ * current local Wi-Fi IP address before pushing the frame to the display.
+ */
 void flashSSD()
 {
   display.clearDisplay();
@@ -286,6 +292,13 @@ BLYNK_CONNECTED()
     Serial.printf("passSocket %d  \n", passSocket);
   }
 }
+/**
+ * @brief Handles a Blynk command to clear the remote IP list of connected devices.
+ *
+ * Triggered by virtual pin V18. Sends an HTTP GET request to `ipDelete` on the
+ * backend server. If the request fails or returns an empty payload, an error is
+ * logged to Serial and no further action is taken.
+ */
 BLYNK_WRITE(V18)
 {
   String payload = performHttpGet(ipDelete);
@@ -295,6 +308,14 @@ BLYNK_WRITE(V18)
     return;
   }
 }
+/**
+ * @brief Sends a BLK test command to every device currently stored in `ipMap`.
+ *
+ * Triggered by virtual pin `BLINK_TST`. Temporarily disables the periodic refresh
+ * timer to avoid overlap with socket traffic, iterates through all known sensor IPs,
+ * and sends the "BLK" command through `socketClient()`. Each response is printed to
+ * Serial, then the refresh timer is re-enabled.
+ */
 BLYNK_WRITE(BLINK_TST)
 {
   timer.disable(timerID1);
@@ -590,7 +611,6 @@ BLYNK_WRITE(V46)
       sprintf(tmp1, "\tpass %d dead %d  time: %lu ms\n", alive, dead, millis() - start);
       strcat(tmp, tmp1);
       Blynk.virtualWrite(V46, tmp);
-    
     }
     // ping http
     sprintf(tmp, "%s\n", ipList);
@@ -617,11 +637,11 @@ BLYNK_WRITE(V46)
     //   }
   }
   // else if (input.startsWith("test"))
-  else {
-    sprintf(tmp, "command %s not vaild \n",input.c_str());
+  else
+  {
+    sprintf(tmp, "command %s not vaild \n", input.c_str());
     Blynk.virtualWrite(V46, tmp);
   }
-
 }
 void printUptime()
 {
@@ -747,6 +767,21 @@ String getIP(String sensorName)
   }
   return returnIPstring;
 }
+/**
+ * @brief Fetches and displays sensor data for a user-requested sensor type via the Blynk terminal (V46).
+ *
+ * Looks up all IP addresses associated with the given sensor prefix (first 3 characters of @p input,
+ * e.g. "bme", "adc", "ds1") using `getIP()`. For each IP, issues a socket "ALL" command to retrieve
+ * the current readings, then matches the response tokens against a built-in tag map that maps sensor
+ * prefixes to numeric device IDs. Matching readings are formatted and written to virtual pin V46.
+ *
+ * @param input The user command string whose first 3 characters identify the sensor type.
+ *              Supported prefixes: "bmx", "bme", "bmp", "sht", "adc", "ds1".
+ *
+ * @note For "adc" sensors the raw voltage is multiplied by the voltage-divider ratio stored
+ *       in `tokens[i][3]` to produce the actual 12 V reading.
+ * @note If no IP is found for the sensor prefix, an error message is written to V46.
+ */
 void getSensorData4User(String input)
 {
   const std::map<std::string, int> tagMap =
@@ -767,7 +802,7 @@ void getSensorData4User(String input)
   }
   String ip = getIP(input.substring(0, 3).c_str());
   if (ip.isEmpty())
-    sprintf(tmp, "invalid ip@ for sensor %s \n", input.c_str());
+    sprintf(tmp, "no ip@ for sensor %s \n", input.c_str());
   else
   {
     while (1)
@@ -782,21 +817,25 @@ void getSensorData4User(String input)
         {
           for (const auto &pair : tagMap)
           {
-
             String sensor = pair.first.c_str();
-            int tag = pair.second;
+            int device = pair.second;
             if (input.substring(0, 3) == sensor)
-              // loop there all deviced
+            {
+              // loop all device(s) data
+              for (int i = 0; i < 5; i++)
+              {
+                if (device == tokens[i][0])
+                {
+                  float ftmp = tokens[i][1];
+                  if (input.startsWith("adc"))
+                    ftmp *= tokens[i][3]; // measuring 12v need voltage div [0][3] contains ratio
 
-              Serial.printf("tag  %s  \n", sensor.c_str());
+                  sprintf(tmp, "%s %f %s %s \n", label.c_str(), ftmp, postFix.c_str(), parseIP.c_str());
+                  Blynk.virtualWrite(V46, tmp);
+                }
+              }
+            }
           }
-
-          float ftmp = tokens[0][1];
-          if (input.startsWith("adc"))
-            ftmp *= tokens[0][3]; // measuring 12v need voltage div
-
-          sprintf(tmp, "%s %f %s %s \n",  label.c_str(), ftmp, postFix.c_str(),parseIP.c_str());
-          Blynk.virtualWrite(V46, tmp);
         }
         ip = ip.substring(index + 1);
       }

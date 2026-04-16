@@ -19,7 +19,7 @@ Primary ESP32 client runtime for Blynk integration, server polling, sensor fetch
 ## Widget Refresh Path
 `refreshWidgets()`:
 1. GET sensor list from `ip.php` via `performHttpGet()`
-2. parse with `getSensorData()` into `ipMap`
+2. parse with `getSensorData()` into `ipMap` (entries are parsed from `count|row,sensor:ip|...`)
 3. socket poll each server with `ALL`
 4. update Blynk terminal (V46) only when sensor list changes
 5. update Blynk counters (V7, V20, V19, V34) and last message (V47)
@@ -46,14 +46,38 @@ Unrecognised commands return an error message to the terminal.
 
 ## Helper Functions
 - `performHttpGet(url)` — HTTP GET wrapper, returns response string or empty on failure
-- `getSensorData(sensorsConnected)` — parses `"count|name:ip|..."` string into `ipMap`, socket-polls each device
+- `getSensorData(sensorsConnected)` — parses `"count|row,sensor:ip|..."` string into `ipMap`, socket-polls each device
+- `getSensorData4User(input)` — resolves matching sensor IPs, polls each node with `ALL`, filters token rows by sensor tag, writes formatted values to terminal pin V46
 - `upDateWidget(sensor, tokens[])` — writes sensor values to Blynk virtual pins; supports BME280, BMP390, SHT35, ADS1115
-- `getIP(sensorName)` — case-insensitive **substring** lookup of sensor name → IP from `ipMap` (e.g. `"bme"` matches `"BME280"`)
+- `getIP(sensorName)` — case-insensitive **substring** lookup that returns all matching IPs as a `|`-delimited string (e.g. `"bme"` matches `"BME280"`)
 - `isServerConnected(serverIP, port)` — TCP connect/disconnect reachability check (default port 8888)
 - `printUptime()` — formats and writes uptime to Blynk terminal (V46) and Serial
 - `checkSSD()` — I2C probe for SSD1306 OLED at `0x3C`
 - `flashSSD()` — displays "ESP32 Client PIO" and local IP on OLED
 - `generateInterrupt()` — manually invokes watchdog ISR for testing
+
+## getSensorData4User Flow
+Used by terminal commands `adc`, `bme`, `bmx`, and `ds1`.
+
+1. Reads sensor prefix from the first 3 characters of the user input.
+2. Calls `getIP(prefix)` and receives all matching IPs as a `|`-delimited list.
+3. Loops each IP and sends socket command `ALL`.
+4. Maps prefix to expected device tag and scans `tokens[i][0]` for matching rows.
+5. Formats result text and writes one line per matched device to V46.
+
+Tag mapping used by the function:
+- `bmx` -> `77`
+- `bme` -> `76`
+- `bmp` -> `58`
+- `sht` -> `44`
+- `adc` -> `48`
+- `ds1` -> `28`
+
+Output behavior:
+- Default output label is `Temp` with unit `F`.
+- For `adc`, output label is `Volt` with unit `V`.
+- For `adc`, value is scaled by divider ratio (`tokens[i][3]`) before display.
+- If no matching IP is found, function returns `no ip@ for sensor ...`.
 
 ## Virtual Pin Map
 | Pin | Alias | Direction | Description |
