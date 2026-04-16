@@ -86,6 +86,7 @@ bool checkSSD();
 void refreshWidgets();
 void getBootTime(char *lastBook, char *strReason);
 int getSensorData(const String &sensorsConnected);
+void getSensorData4User(String input);
 String performHttpGet(const char *url);
 int decryptWifiCredentials(char *auth, char *ssid, char *psw);
 int socketClient(char *espServer, char *command, bool updateErorrQue);
@@ -523,8 +524,7 @@ int getSensorData(const String &sensorsConnected)
 BLYNK_WRITE(V46)
 {
   String validCommand[] = {"list", "reboot", "ping", "up", "adc", "bme", "bmx", "ds1"};
-  char tmp[130];
-
+  char tmp[512];
   int numberOfElements = sizeof(validCommand) / sizeof(validCommand[0]);
 
   String input = param.asStr(); // Read the input string from the terminal
@@ -546,7 +546,7 @@ BLYNK_WRITE(V46)
       Blynk.virtualWrite(V46, tmp);
     }
   }
-  if (input.startsWith("reboot"))
+  else if (input.startsWith("reboot"))
   {
     Serial.println("Reboot command received. Restarting...");
     queStat();
@@ -557,37 +557,7 @@ BLYNK_WRITE(V46)
 
   else if (input.startsWith("bmx") || input.startsWith("bme") || input.startsWith("adc") || input.startsWith("ds1"))
   {
-    String label = "Temp", postFix = "F";
-    if (input.startsWith("adc"))
-    {
-      label = "Volt";
-      postFix = "V";
-    }
-    bool rc = false;
-
-    String ip = getIP(input.substring(0, 3).c_str());
-    if (ip.isEmpty())
-      sprintf(tmp, "invalid ip@ for sensor %s \n", input.c_str());
-    else
-    {
-      // sprintf(tmp, "ip %s for %s \n", ip.c_str(), input.c_str());
-      if (socketClient((char *)ip.c_str(), (char *)"ALL", 1))
-        Serial.println("socketClient() failed");
-      else
-      {
-        float ftmp = tokens[0][1];
-        if (input.startsWith("adc"))
-          ftmp *= tokens[0][3];
-        sprintf(tmp, "%s %f %s \n", label.c_str(), ftmp, postFix.c_str());
-        rc = true;
-      }
-
-      if (!rc)
-        sprintf(tmp, "socketClient() failed for sensor %s\n", input.c_str());
-    }
-    
-
-    Blynk.virtualWrite(V46, tmp);
+    getSensorData4User(input);
   }
   else if (input.startsWith("refr"))
   {
@@ -604,7 +574,7 @@ BLYNK_WRITE(V46)
     // Iterate over all registered sensor-IP pairs and perform a connectivity check.
     // Each device is pinged 4 times via TCP connect/disconnect (isServerConnected).
     // Results (pass/dead counts and elapsed time) are reported back to the Blynk
-    // terminal (V46). If any ping fails, the terminal color is set to red.
+    // terminal (V46). If any ping fails, the terminal color is set to red there is a know bug code removed
     for (const auto &pair : ipMap)
     {
       alive = dead = 0;
@@ -771,10 +741,67 @@ String getIP(String sensorName)
     mapKey.toUpperCase();
     if (mapKey.indexOf(sensorKey) >= 0)
     {
-      returnIPstring = pair.second.c_str();
-      break;
+      returnIPstring.concat(pair.second.c_str());
+      returnIPstring.concat("|");
     }
   }
-  // Serial.printf("sensorKey %s_ mapKey %s_\n", sensorKey.c_str(), mapKey.c_str());
   return returnIPstring;
+}
+void getSensorData4User(String input)
+{
+  const std::map<std::string, int> tagMap =
+      {
+          {"bmx", 77},
+          {"bme", 76},
+          {"bmp", 58},
+          {"sht", 44},
+          {"adc", 48},
+          {"ds1", 28}};
+
+  char tmp[512];
+  String label = "Temp", postFix = "F";
+  if (input.startsWith("adc"))
+  {
+    label = "Volt";
+    postFix = "V";
+  }
+  String ip = getIP(input.substring(0, 3).c_str());
+  if (ip.isEmpty())
+    sprintf(tmp, "invalid ip@ for sensor %s \n", input.c_str());
+  else
+  {
+    while (1)
+    {
+      int index = ip.indexOf("|");
+      if (index >= 0)
+      {
+        String parseIP = ip.substring(0, index);
+        if (socketClient((char *)parseIP.c_str(), (char *)"ALL", 0))
+          Serial.println("socketClient() failed");
+        else
+        {
+          for (const auto &pair : tagMap)
+          {
+
+            String sensor = pair.first.c_str();
+            int tag = pair.second;
+            if (input.substring(0, 3) == sensor)
+              // loop there all deviced
+
+              Serial.printf("tag  %s  \n", sensor.c_str());
+          }
+
+          float ftmp = tokens[0][1];
+          if (input.startsWith("adc"))
+            ftmp *= tokens[0][3]; // measuring 12v need voltage div
+
+          sprintf(tmp, "%s %f %s %s \n",  label.c_str(), ftmp, postFix.c_str(),parseIP.c_str());
+          Blynk.virtualWrite(V46, tmp);
+        }
+        ip = ip.substring(index + 1);
+      }
+      else
+        break;
+    }
+  }
 }
