@@ -50,7 +50,7 @@
  */
 #define BLYNK_TEMPLATE_ID "TMPL21W-vgTej"
 #define BLYNK_TEMPLATE_NAME "autoStart"
-//#define BLYNK_AUTH_TOKEN moved token to secured  /data 
+// #define BLYNK_AUTH_TOKEN moved token to secured  /data
 
 #include <Arduino.h>
 #include <map>
@@ -117,6 +117,7 @@ const char *deleteAll = "http://192.168.1.252/deleteALL.php";
 const char *ipList = "http://192.168.1.252/ip.php";
 const char *ipDelete = "http://192.168.1.252/deleteIP.php";
 const char *esp_data = "http://192.168.1.252/esp-data.php";
+int myfind(String value);
 
 /**
  * @brief Sets up the initial configuration for the ESP32 client application.
@@ -805,16 +806,26 @@ void getSensorData4User(String input)
     sprintf(tmp, "no ip@ for sensor %s \n", input.c_str());
   else
   {
+    int chipID = 0, rc = 0;
     while (1)
     {
       int index = ip.indexOf("|");
       if (index >= 0)
       {
         String parseIP = ip.substring(0, index);
-        if (socketClient((char *)parseIP.c_str(), (char *)"ALL", 0))
+        rc = socketClient((char *)parseIP.c_str(), (char *)"ALL", 0);
+        if (rc)
           Serial.println("socketClient() failed");
         else
         {
+          // .find() has bugs when passing input.c_str() but works if hard code "adc"
+          // auto it = tagMap.find((std::string)input.c_str());
+          // auto it = tagMap.find("adc");
+          // if (it != tagMap.end())
+          // {
+          //   chipID = it->second; // Access value
+          // }
+          // Serial.printf("senur chip ID %d from blynk %s\n", chipID, input.c_str());
           for (const auto &pair : tagMap)
           {
             String sensor = pair.first.c_str();
@@ -828,6 +839,7 @@ void getSensorData4User(String input)
                 {
                   float ftmp = tokens[i][1];
                   if (input.startsWith("adc"))
+                    // value is scaled by divider ratio (`tokens[i][3]`) before display
                     ftmp *= tokens[i][3]; // measuring 12v need voltage div [0][3] contains ratio
 
                   sprintf(tmp, "%s %f %s %s \n", label.c_str(), ftmp, postFix.c_str(), parseIP.c_str());
@@ -844,3 +856,4 @@ void getSensorData4User(String input)
     }
   }
 }
+//
