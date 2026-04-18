@@ -229,7 +229,7 @@ void refreshWidgets() // called every x seconds by SimpleTimer
   if (lastSensorsConnected != sensorsConnected) // only update Blynk terminal when IP list changes
   {
     lastSensorsConnected = sensorsConnected;
-    Blynk.virtualWrite(V49, "\nStart:\n");
+    Blynk.virtualWrite(V46, "\nStart:\n");
     for (const auto &pair : ipMap)
     {
       Serial.printf("Sensor: %s, IP: %s\n", pair.first.c_str(), pair.second.c_str());
