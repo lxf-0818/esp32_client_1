@@ -147,6 +147,9 @@ void setup()
   if (decryptWifiCredentials(auth, ssid, pass))
     ESP.restart();
   Blynk.begin(auth, ssid, pass);
+
+  String IP = WiFi.localIP().toString();
+  Serial.printf("IP @: %s\n",IP.c_str());
   if (checkSSD()) //  is OLED SSD connected?
     flashSSD();
 
