@@ -95,6 +95,7 @@ void generateInterrupt();
 void printUptime();
 String getIP(String sensorName);
 void printTokens(float tokens[5][5]);
+void ping();
 
 std::map<std::string, std::string> ipMap;
 const uint16_t port = 8888;
@@ -154,6 +155,7 @@ void setup()
   initRTOS();
   lwdtFeed();
   lwdTicker.attach_ms(LWD_TIMEOUT, lwdtcb); // attach lwdt callback routine to Ticker object
+  // Blynk.setProperty(V49, "color", "#0fc212ff");
 }
 /**
  * @brief Main runtime loop for the ESP32 client.
@@ -227,15 +229,15 @@ void refreshWidgets() // called every x seconds by SimpleTimer
   if (lastSensorsConnected != sensorsConnected) // only update Blynk terminal when IP list changes
   {
     lastSensorsConnected = sensorsConnected;
-    Blynk.virtualWrite(V46, "\nStart:\n");
+    Blynk.virtualWrite(V49, "\nStart:\n");
     for (const auto &pair : ipMap)
     {
       Serial.printf("Sensor: %s, IP: %s\n", pair.first.c_str(), pair.second.c_str());
       sprintf(tmp, "\tSensor: %s, IP: %s\n", pair.first.c_str(), pair.second.c_str());
-      Blynk.virtualWrite(V46, tmp);
+      Blynk.virtualWrite(V49, tmp);
     }
     sprintf(tmp, "\n\tenter 'list' for valid commands\n");
-    Blynk.virtualWrite(V46, tmp);
+    Blynk.virtualWrite(V49, tmp);
   }
 
   Blynk.virtualWrite(V7, passSocket);
@@ -276,7 +278,6 @@ BLYNK_CONNECTED()
   Blynk.virtualWrite(VRECOV, 0); //   "   recover
   Blynk.virtualWrite(VRETRY, 0); //   "   retry
   Blynk.virtualWrite(V39, "boot");
-  Blynk.setProperty(V46, "color", "#0fc212ff");
 
   String payload = performHttpGet(getRowCnt);
   if (payload.isEmpty())
@@ -529,7 +530,7 @@ int getSensorData(const String &sensorsConnected)
 /**
  * @brief Handles input from the Blynk terminal widget.
  *
- * This function is triggered whenever a string is sent to the virtual pin V46
+ * This function is triggered whenever a string is sent to the virtual pin V49
  * (configured as a terminal widget in the Blynk app). It reads the input string
  * and logs it to the serial monitor for further processing.
  *
@@ -538,12 +539,12 @@ int getSensorData(const String &sensorsConnected)
  *           failure/recovery counters.
  * - "test": Triggers a test interrupt by calling the `generateInterrupt` function.
  * - "ping": Iterates through a map of IP addresses, checks server connectivity,
- *           and sends the results back to the terminal widget on V46.
+ *           and sends the results back to the terminal widget on V49.
  *
  *
  * @param param The parameter object containing the string sent to the terminal widget.
  */
-BLYNK_WRITE(V46)
+BLYNK_WRITE(V49)
 {
   String validCommand[] = {"list", "reboot", "ping", "up", "adc", "bme", "bmx", "ds1"};
   char tmp[512];
@@ -565,7 +566,7 @@ BLYNK_WRITE(V46)
     {
       Serial.println(validCommand[i]);
       sprintf(tmp, "%s %s", validCommand[i].c_str(), "\n");
-      Blynk.virtualWrite(V46, tmp);
+      Blynk.virtualWrite(V49, tmp);
     }
   }
   else if (input.startsWith("reboot"))
@@ -589,59 +590,13 @@ BLYNK_WRITE(V46)
   }
   else if (input.startsWith("ping"))
   {
-    int dead, alive;
-    unsigned long start = millis();
-    char tmp[100], tmp1[100];
-
-    // Iterate over all registered sensor-IP pairs and perform a connectivity check.
-    // Each device is pinged 4 times via TCP connect/disconnect (isServerConnected).
-    // Results (pass/dead counts and elapsed time) are reported back to the Blynk
-    // terminal (V46). If any ping fails, the terminal color is set to red there is a know bug code removed
-    for (const auto &pair : ipMap)
-    {
-      alive = dead = 0;
-      sprintf(tmp, "%s %s:\n", pair.first.c_str(), pair.second.c_str());
-      for (int j = 0; j < 4; j++)
-      {
-        if (isServerConnected(pair.second.c_str()))
-          alive++;
-        else
-          dead++;
-      }
-
-      sprintf(tmp1, "\tpass %d dead %d  time: %lu ms\n", alive, dead, millis() - start);
-      strcat(tmp, tmp1);
-      Blynk.virtualWrite(V46, tmp);
-    }
-    // ping http
-    sprintf(tmp, "%s\n", ipList);
-
-    alive = dead = 0;
-    start = millis();
-    for (int j = 0; j < 4; j++)
-    {
-      String sensorsConnected = performHttpGet(ipList);
-      if (sensorsConnected.isEmpty())
-        dead++;
-      else
-        alive++;
-    }
-    sprintf(tmp1, "\t%d pass %d dead time: %lu ms\n", alive, dead, millis() - start);
-    strcat(tmp, tmp1);
-    Blynk.virtualWrite(V46, tmp);
-    //   float tokens[5];
-    //   start = millis();
-    //   for (const auto &pair : ipMap)
-    //   {
-    //     setupHTTP_request(pair.second.c_str(), tokens);
-    //     Serial.printf("mySQL time %lu\n", millis() - start);
-    //   }
+    ping();
   }
   // else if (input.startsWith("test"))
   else
   {
     sprintf(tmp, "command %s not vaild \n", input.c_str());
-    Blynk.virtualWrite(V46, tmp);
+    Blynk.virtualWrite(V49, tmp);
   }
 }
 void printUptime()
@@ -660,7 +615,7 @@ void printUptime()
 
   // Print uptime to the serial monitor
   sprintf(tmp, "Uptime: %lu days, %lu hours, %lu minutes, %lu seconds\n", days, hours, minutes, seconds);
-  Blynk.virtualWrite(V46, tmp);
+  Blynk.virtualWrite(V49, tmp);
   Serial.printf("Uptime: %lu days, %lu hours, %lu minutes, %lu seconds\n", days, hours, minutes, seconds);
 }
 
@@ -756,7 +711,7 @@ String getIP(String sensorName)
 #ifdef DEBUG_
     char tmp[100];
     sprintf(tmp, "Sensor %s ip %s\n", pair.first.c_str(), pair.second.c_str());
-    Blynk.virtualWrite(V46, tmp);
+    Blynk.virtualWrite(V49, tmp);
 #endif
     mapKey = pair.first.c_str();
     mapKey.toUpperCase();
@@ -769,19 +724,19 @@ String getIP(String sensorName)
   return returnIPstring;
 }
 /**
- * @brief Fetches and displays sensor data for a user-requested sensor type via the Blynk terminal (V46).
+ * @brief Fetches and displays sensor data for a user-requested sensor type via the Blynk terminal (V49).
  *
  * Looks up all IP addresses associated with the given sensor prefix (first 3 characters of @p input,
  * e.g. "bme", "adc", "ds1") using `getIP()`. For each IP, issues a socket "ALL" command to retrieve
  * the current readings, then matches the response tokens against a built-in tag map that maps sensor
- * prefixes to numeric device IDs. Matching readings are formatted and written to virtual pin V46.
+ * prefixes to numeric device IDs. Matching readings are formatted and written to virtual pin V49.
  *
  * @param input The user command string whose first 3 characters identify the sensor type.
  *              Supported prefixes: "bmx", "bme", "bmp", "sht", "adc", "ds1".
  *
  * @note For "adc" sensors the raw voltage is multiplied by the voltage-divider ratio stored
  *       in `tokens[i][3]` to produce the actual 12 V reading.
- * @note If no IP is found for the sensor prefix, an error message is written to V46.
+ * @note If no IP is found for the sensor prefix, an error message is written to V49.
  */
 void getSensorData4User(String input)
 {
@@ -803,10 +758,13 @@ void getSensorData4User(String input)
   }
   String ip = getIP(input.substring(0, 3).c_str());
   if (ip.isEmpty())
+  {
     sprintf(tmp, "no ip@ for sensor %s \n", input.c_str());
+    Blynk.virtualWrite(V49, tmp);
+  }
   else
   {
-    int chipID = 0, rc = 0;
+    int rc = 0;
     while (1)
     {
       int index = ip.indexOf("|");
@@ -840,10 +798,11 @@ void getSensorData4User(String input)
                   float ftmp = tokens[i][1];
                   if (input.startsWith("adc"))
                     // value is scaled by divider ratio (`tokens[i][3]`) before display
-                    ftmp *= tokens[i][3]; // measuring 12v need voltage div [0][3] contains ratio
+                    // measuring 12v need voltage div [0][3] contains divider ratio
+                    ftmp *= tokens[i][3];
 
                   sprintf(tmp, "%s %f %s %s \n", label.c_str(), ftmp, postFix.c_str(), parseIP.c_str());
-                  Blynk.virtualWrite(V46, tmp);
+                  Blynk.virtualWrite(V49, tmp);
                 }
               }
             }
@@ -855,5 +814,49 @@ void getSensorData4User(String input)
         break;
     }
   }
+}
+
+void ping()
+{
+  int dead, alive;
+  unsigned long start = millis();
+  char tmp[100], tmp1[100];
+
+  // Iterate over all registered sensor-IP pairs and perform a connectivity check.
+  // Each device is pinged 4 times via TCP connect/disconnect (isServerConnected).
+  // Results (pass/dead counts and elapsed time) are reported back to the Blynk
+  // terminal (V49). If any ping fails, the terminal color is set to red there is a know bug code removed
+  for (const auto &pair : ipMap)
+  {
+    alive = dead = 0;
+    sprintf(tmp, "%s %s:\n", pair.first.c_str(), pair.second.c_str());
+    for (int j = 0; j < 4; j++)
+    {
+      if (isServerConnected(pair.second.c_str()))
+        alive++;
+      else
+        dead++;
+    }
+
+    sprintf(tmp1, "\tpass %d dead %d  time: %lu ms\n", alive, dead, millis() - start);
+    strcat(tmp, tmp1);
+    Blynk.virtualWrite(V49, tmp);
+  }
+  // ping http
+  sprintf(tmp, "%s\n", ipList);
+
+  alive = dead = 0;
+  start = millis();
+  for (int j = 0; j < 4; j++)
+  {
+    String sensorsConnected = performHttpGet(ipList);
+    if (sensorsConnected.isEmpty())
+      dead++;
+    else
+      alive++;
+  }
+  sprintf(tmp1, "\t%d pass %d dead time: %lu ms\n", alive, dead, millis() - start);
+  strcat(tmp, tmp1);
+  Blynk.virtualWrite(V49, tmp);
 }
 //
