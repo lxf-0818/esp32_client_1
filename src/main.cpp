@@ -333,6 +333,7 @@ BLYNK_WRITE(BLINK_TST)
     Serial.printf("blk_tst %s \n", str);
     free(str);
   }
+  timer.enable(timerID1);
 
   // int index = param.asInt();
   //  char *str = socketClient((char *)ipAddr[index], (char *)"TST");
@@ -341,7 +342,7 @@ BLYNK_WRITE(BLINK_TST)
   //  skip crc
   //  Blynk.virtualWrite(V12, (foo.substring(index + 1)));
   //  free(str);
-  timer.enable(timerID1);
+  //  timer.enable(timerID1);
 }
 /**
  * @brief ISR (Interrupt Service Routine) for handling the lightweight watchdog timer (LWD).

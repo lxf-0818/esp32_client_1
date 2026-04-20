@@ -220,7 +220,7 @@ int readAES(char *fileName, byte data[])
   File file = LittleFS.open(fileName, "r");
   if (!file)
   {
-    Serial.println("Failed to open /aes.txt file for reading");
+    Serial.printf("Failed to open %s file for reading\n",fileName);
     return 2;
   }
   String key;

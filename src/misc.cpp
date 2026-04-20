@@ -48,10 +48,12 @@ void getBootTime(char *lastBoot, char *strReason)
     else
     {
       int hr = timeinfo.tm_hour;
-      snprintf(lastBoot, 64, "%d/%d/%d %d:%02d 0x%02x",
+      
+      int cnt = snprintf(lastBoot, sizeof(lastBoot)*8, "%d/%d/%d %d:%02d 0x%02x",
                timeinfo.tm_mon + 1, timeinfo.tm_mday, timeinfo.tm_year + 1900,
                hr, timeinfo.tm_min, reset_reason);
-      break; // passed 1st time!
+     // Serial.printf("string length %d  %d \n",strlen(lastBoot),cnt);
+      break; 
     }
   }
   Serial.printf("Boot time: %s, Reset reason: %s\n", lastBoot, strReason);
