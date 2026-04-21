@@ -51,7 +51,7 @@
  * @note The code is designed to run on an ESP32 microcontroller using the Arduino framework.
  * @note The HTTP and socket operations are designed to handle errors and recover gracefully.
  * @note The application uses FreeRTOS features such as tasks, queues, and mutexes for multitasking and synchronization.
- * 
+ *
  * @author Leon Freimour
  * @date 2025-3-28
  */
@@ -62,12 +62,13 @@
 #include <time.h>
 #include <CRC32.h>
 #include <Wire.h>
+#include <LittleFS.h>
 
 // Constants
 // #define DEBUG
 #define SOCKET_QUEUE_SIZE 2
 #define HTTP_QUEUE_SIZE 5
-#define TASK_STACK_SIZE 2048 
+#define TASK_STACK_SIZE 2048
 #define SOCKET_DELAY_MS 50
 #define HTTP_DELAY_MS 100
 #define BLINK_DELAY_MS 1000
@@ -84,6 +85,7 @@ QueueHandle_t QueSocket_Handle, QueHTTP_Handle;
 TaskHandle_t socket_task_handle, http_task_handle, blink_task_handle;
 extern String lastMsg;
 extern int failSocket, passSocket, recoveredSocket, retry;
+String apiKey;
 
 // Function Prototypes
 void initRTOS();
@@ -150,6 +152,15 @@ void initRTOS()
 {
     uint32_t socket_delay = SOCKET_DELAY_MS, http_delay = HTTP_DELAY_MS, blink_delay = BLINK_DELAY_MS;
     pinMode(LED_BUILTIN, OUTPUT);
+    
+    File file = LittleFS.open("/api.txt", "r");
+    if (!file)
+    {
+        Serial.println("Failed to open blynkAuth.txt file for reading");
+        ESP.restart();
+    }
+    while (file.available())
+        apiKey.concat(static_cast<char>(file.read()));
 
     QueSocket_Handle = xQueueCreate(SOCKET_QUEUE_SIZE, sizeof(socket_t));
     if (QueSocket_Handle == NULL)
@@ -213,9 +224,9 @@ int socketRecovery(char *IP, char *cmd2Send)
         else if (ret == errQUEUE_FULL)
         {
             Serial.println(".......unable to send data to socket  Queue is Full");
-            String phpScript = "http://192.168.1.252/deleteMAC.php?key=" + (String)IP;
-            deleteRow(phpScript); // delete 
-            //Blynk.logEvent("");
+            String phpScript = "http://192.168.1.252/deleteIP.php?key=" + (String)IP;
+            deleteRow(phpScript); // delete
+            // Blynk.logEvent("");
             xQueueReset(QueSocket_Handle);
         }
         return ret;
@@ -292,7 +303,7 @@ void taskSQL_HTTP(void *pvParameters)
                     int j = 0, rc = 0;
                     while (1)
                     {
-                        vTaskDelay(xDelay); 
+                        vTaskDelay(xDelay);
                         rc = deleteRow(phpScript);
                         if (rc || j++ == MAX_RETRY)
                             break; //
@@ -357,7 +368,7 @@ void taskSocketRecov(void *pvParameters)
                 retry++;
 
                 // do not update socket stats in recovery mode
-                int x = (*socketQue.fun_ptr)(socketQue.ipAddr, socketQue.cmd, NO_UPDATE_FAIL); 
+                int x = (*socketQue.fun_ptr)(socketQue.ipAddr, socketQue.cmd, NO_UPDATE_FAIL);
                 if (!x)
                 {
                     recoveredSocket++;
@@ -404,16 +415,15 @@ void taskSocketRecov(void *pvParameters)
 void setupHTTP_request(String sensorName, float tokens[])
 {
     message_t message;
-    String apiKeyValue = "tPmAT5Ab3j7F9";
     String sensorLocation = "HOME";
     extern int passSocket;
     float tmp = tokens[1];
-    if (sensorName.indexOf("ADS1115") >=0)
+    if (sensorName.indexOf("ADS1115") >= 0)
         tmp *= tokens[3];
 
     if (QueHTTP_Handle != NULL && uxQueueSpacesAvailable(QueHTTP_Handle) > 0)
     {
-        String httpRequestData = "api_key=" + apiKeyValue;
+        String httpRequestData = "api_key=" + apiKey;
         httpRequestData += "&sensor=" + sensorName;
         httpRequestData += "&location=" + sensorLocation;
         httpRequestData += "&value1=" + String(tmp);

@@ -46,9 +46,14 @@ Initializes queues, tasks, mutexes, and GPIO for LED.
 Loads /api.txt from LittleFS and stores the content into apiKey.
 Restarts ESP32 if required tasks fail to start.
 
+Failure behavior in initRTOS:
+- If /api.txt cannot be opened, ESP restarts.
+- If any task handle is null after creation, ESP restarts.
+- Queue/mutex allocation failures are logged to serial.
+
 ### socketRecovery(IP, cmd)
 Pushes failed socket operation to socket queue.
-If queue is full, deletes stale DB row via local PHP endpoint and resets queue.
+If queue is full, calls deleteMAC.php for the IP and resets the socket queue.
 
 ### taskSQL_HTTP(...)
 Consumer loop for HTTP queue:
@@ -57,21 +62,42 @@ Consumer loop for HTTP queue:
 3. on failure, attempts delete/recovery path with retry limit
 4. can requeue recovered message for later send
 
+Additional behavior:
+- Uses xMutex_http around HTTP transaction work.
+- Tracks passPost/failPost/recovered counters locally in task context.
+
 ### taskSocketRecov(...)
 Consumes queued socket failures and retries command transmission.
 Updates recovery counters and messages.
 
+Additional behavior:
+- Increments global retry counter before each recovery attempt.
+- Calls socketClient(..., NO_UPDATE_FAIL) so normal fail stats are not double-counted.
+- Requeues failed recovery attempts back into QueSocket_Handle.
+
 ### setupHTTP_request(sensorName, tokens)
 Builds URL-encoded payload from sensor values and enqueues into HTTP queue.
 
+Payload format:
+- api_key=<apiKey from /api.txt>
+- sensor=<sensorName>
+- location=HOME
+- value1=<tokens[1] or ADS1115-scaled value>
+- value2=<tokens[2]>
+- value3=<passSocket>
+
 ### queStat()
 Utility to inspect queue state and gate restart behavior when work is still pending.
+
+Notes:
+- Waits up to 5 seconds for both queues to drain.
+- On success, takes both mutexes before returning true.
 
 ## Network Endpoints Used
 Hardcoded local endpoints are used for row delete/recovery and post actions, including:
 - post-esp-data.php
 - delete.php
-- deleteIP.php
+- deleteMAC.php
 
 ## Operational Notes
 - Queue backpressure is intentionally small; overflow triggers cleanup strategy.

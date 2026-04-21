@@ -49,7 +49,7 @@ void getBootTime(char *lastBoot, char *strReason)
     {
       int hr = timeinfo.tm_hour;
       
-      int cnt = snprintf(lastBoot, sizeof(lastBoot)*8, "%d/%d/%d %d:%02d 0x%02x",
+      snprintf(lastBoot, 64, "%d/%d/%d %d:%02d 0x%02x",
                timeinfo.tm_mon + 1, timeinfo.tm_mday, timeinfo.tm_year + 1900,
                hr, timeinfo.tm_min, reset_reason);
      // Serial.printf("string length %d  %d \n",strlen(lastBoot),cnt);

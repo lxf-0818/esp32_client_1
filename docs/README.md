@@ -1,5 +1,7 @@
 # ESP32 Client Documentation
 
+Last updated: 2026-04-21
+
 ## Overview
 This project is an ESP32-based IoT client that:
 - Connects to Wi-Fi using encrypted credentials stored in LittleFS.
@@ -10,6 +12,15 @@ This project is an ESP32-based IoT client that:
 - Uses a loop watchdog timer to reboot on loop stalls.
 
 Main runtime code is in src/main.cpp.
+
+Detailed module docs:
+- docs/main.md
+- docs/login.md
+- docs/freeRtos.md
+- docs/socketClient.md
+- docs/rollBack.md
+- docs/misc.md
+- docs/blynk_widget.md
 
 ## Build Environment
 PlatformIO environment:
@@ -43,7 +54,7 @@ Configured in platformio.ini.
 3. setup() schedules refreshWidgets() every 20 seconds.
 4. setup() initializes RTOS support.
 5. setup() starts timer for watchdog ticker.
-5. loop()  continuously runs lwdtFeed(), Blynk.run(), and timer.run().
+6. loop() continuously runs lwdtFeed(), Blynk.run(), and timer.run().
 7. refreshWidgets() fetches current sensor list from HTTP, updates sensor map, and updates Blynk stats.
 8. Sensor data is read via socketClient() and forwarded to matching Blynk widgets.
 
@@ -59,6 +70,7 @@ Important handlers in src/main.cpp:
 - reboot: save queue status and reboot
 - up: print uptime
 - adc | bme | bmx: query selected sensor type and print latest value
+- ds1: query DS18B20 temperature data
 - refr: force widget refresh and reset counters
 - ping: test TCP and HTTP reachability metrics
 
@@ -71,6 +83,8 @@ The client currently uses fixed local endpoints in src/main.cpp:
 - esp-data.php
 
 If your server IP changes, update these constants.
+
+Note: data/api.txt exists in this project and is loaded by FreeRTOS HTTP queue logic. Endpoint host constants in main.cpp are still hardcoded.
 
 ## Data Model Summary
 - ipMap (std::map<string, string>): sensorName -> ipAddress.
@@ -93,6 +107,7 @@ LittleFS data files expected in data/:
 - ssid_pass_aes.txt
 
 Upload filesystem data before first boot if values are missing.
+At startup, login.cpp requires blynkAuth.txt, aes.txt, iv.txt, and ssid_pass_aes.txt for auth and Wi-Fi decryption.
 
 ## Security Notes
 - Do not commit real tokens, keys, or passwords.
