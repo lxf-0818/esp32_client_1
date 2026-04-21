@@ -8,14 +8,24 @@ Runs background tasks for queue-driven recovery and SQL HTTP posting, isolated f
 - QueHTTP_Handle: queue for HTTP post messages
 - xMutex_sock: socket synchronization mutex
 - xMutex_http: HTTP synchronization mutex
+- apiKey: loaded from LittleFS file /api.txt during RTOS init
 
 ## Task Topology
 initRTOS creates three pinned tasks:
-- taskBlink (core 1, low priority): heartbeat LED toggle
-- taskSQL_HTTP (core 0, medium priority): POST sensor lines to backend
-- taskSocketRecov (core 1, high priority): retry failed socket calls
+- taskBlink (core 1, priority 1): heartbeat LED toggle
+- taskSQL_HTTP (core 0, priority 2): POST sensor lines to backend
+- taskSocketRecov (core 1, priority 3): retry failed socket calls
 
 Queue sizes and stack sizes are compile-time constants.
+
+Current constants:
+- SOCKET_QUEUE_SIZE = 2
+- HTTP_QUEUE_SIZE = 5
+- TASK_STACK_SIZE = 2048 (socket/http use 2x)
+- SOCKET_DELAY_MS = 50
+- HTTP_DELAY_MS = 100
+- BLINK_DELAY_MS = 1000
+- MAX_RETRY = 5
 
 ## Queue Data Types
 
@@ -33,6 +43,7 @@ Queue sizes and stack sizes are compile-time constants.
 
 ### initRTOS()
 Initializes queues, tasks, mutexes, and GPIO for LED.
+Loads /api.txt from LittleFS and stores the content into apiKey.
 Restarts ESP32 if required tasks fail to start.
 
 ### socketRecovery(IP, cmd)
