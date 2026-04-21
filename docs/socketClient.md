@@ -70,7 +70,7 @@ Example logical shape:
 Tokenizer writes numeric values into a fixed 5x5 float matrix.
 
 ## Reliability and Recovery
-- timeout and connect failures can be queued for retry
+- timeout and connect failures are queued for retry
 - CRC failure is treated as transport/data integrity failure
 - `lastMsg`, fail/pass/retry counters are updated for diagnostics
 

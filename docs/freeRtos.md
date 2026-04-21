@@ -60,7 +60,7 @@ Utility to inspect queue state and gate restart behavior when work is still pend
 Hardcoded local endpoints are used for row delete/recovery and post actions, including:
 - post-esp-data.php
 - delete.php
-- deleteMAC.php
+- deleteIP.php
 
 ## Operational Notes
 - Queue backpressure is intentionally small; overflow triggers cleanup strategy.

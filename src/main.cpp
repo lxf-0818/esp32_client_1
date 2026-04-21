@@ -149,7 +149,7 @@ void setup()
   Blynk.begin(auth, ssid, pass);
 
   String IP = WiFi.localIP().toString();
-  Serial.printf("IP @: %s\n",IP.c_str());
+  Serial.printf("IP @: %s\n", IP.c_str());
   if (checkSSD()) //  is OLED SSD connected?
     flashSSD();
 
@@ -512,8 +512,9 @@ int getSensorData(const String &sensorsConnected)
     String ip = sensorConnected.substring(index + 1, index2);
     String sensorName = sensorConnected.substring(index1 + 1, index);
 
-    ipMap[sensorName.c_str()] = ip.c_str(); // update map with IP address , used downstream for connecting to server
-                                            // #define DEBUG_1
+    // update map with IP address , used downstream for connecting to server from terminal(V48)
+    ipMap[sensorName.c_str()] = ip.c_str(); 
+// #define DEBUG_1
 #ifdef DEBUG_1
     Serial.printf("Sensor: %s, IP: %s\n", sensorName.c_str(), ip.c_str());
 #endif

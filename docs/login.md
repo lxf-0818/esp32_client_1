@@ -26,7 +26,7 @@ Behavior details:
 
 ### aes_init()
 Sets AES padding mode and initializes working IV copies.
-
+NOTE:Server only no used in client 
 ### encrypt_to_ciphertext(msg, iv)
 Encrypts plaintext into base64 ciphertext and performs round-trip decrypt verification.
 
