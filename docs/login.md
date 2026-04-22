@@ -1,40 +1,46 @@
 # login.cpp
 
 ## Purpose
-The login module handles secure startup credentials for the ESP32 client:
+The login module handles startup credentials for the ESP32 client:
 - reads Blynk auth token from LittleFS
 - reads AES key and IV from LittleFS
-- decrypts WiFi credentials from encrypted storage
+- decrypts stored WiFi credentials
+- reads API key data from LittleFS
 
 ## Files Used from LittleFS
 - /blynkAuth.txt: Blynk token string
 - /aes.txt: comma-separated AES key bytes in hex
 - /iv.txt: comma-separated AES IV bytes in hex
 - /ssid_pass_aes.txt: AES-encrypted SSID:password string
+- /api.txt: API key used by the client
 
 ## Main API
 
 ### decryptWifiCredentials(auth, ssid, pass)
-Reads all required files, decrypts SSID/password, and returns:
-- 0 on success
-- 2 if encrypted credential file cannot be opened
+Mounts LittleFS, loads crypto material, decrypts `SSID:PASSWORD`, and writes results into output buffers.
 
-Behavior details:
-- mounts LittleFS
-- restarts ESP32 on critical missing files (blynkAuth or fs mount failure)
-- parses decrypted payload by splitting on ':'
+Current return behavior in code:
+- returns `0` after normal function flow
+- may restart the device if LittleFS cannot be mounted
+
+Notes:
+- if a file cannot be opened, helper functions log an error and return empty/default data
+- parsing assumes decrypted payload contains `:` between SSID and password
 
 ### aes_init()
 Sets AES padding mode and initializes working IV copies.
-NOTE:Server only no used in client 
+
 ### encrypt_to_ciphertext(msg, iv)
-Encrypts plaintext into base64 ciphertext and performs round-trip decrypt verification.
+Encrypts plaintext to Base64 ciphertext and runs an internal decrypt check.
 
 ### decrypt_to_cleartext(msg, len, iv, cleartext)
-Decrypts base64 ciphertext and truncates at first non-printable byte (<32) to force valid C-string termination.
+Decrypts Base64 ciphertext and truncates at the first non-printable byte (`< 32`) to keep a valid C-string.
 
 ### readAES(fileName, data)
 Parses comma-separated hex bytes into a byte buffer.
+
+### readLittle(fileName)
+Reads a text file from LittleFS and returns it as a String.
 
 ## Data Format Requirements
 - AES key and IV files must be hex byte lists, for example:
@@ -43,14 +49,13 @@ Parses comma-separated hex bytes into a byte buffer.
   `SSID:PASSWORD`
 
 ## Failure Modes
-- LittleFS mount failure: device restart
-- missing blynkAuth file: device restart
-- missing ssid_pass_aes file: returns error code 2
+- LittleFS mount failure: device restart (`ESP.restart()`)
+- missing/invalid files: helper reads may return empty data and logs to Serial
 - malformed key/iv input: can produce invalid decrypt output
+- missing `:` in decrypted credentials: SSID/password parsing becomes invalid
 
 ## Integration Points
-Used by startup path in src/main.cpp to initialize:
+Used in startup flow in `src/main.cpp` to initialize:
 - Blynk auth token
 - WiFi SSID/password
-
-Without successful decrypt flow, setup restarts the ESP32.
+- API key (`phpKey`)

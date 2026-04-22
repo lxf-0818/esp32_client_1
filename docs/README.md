@@ -1,6 +1,6 @@
 # ESP32 Client Documentation
 
-Last updated: 2026-04-21
+Last updated: 2026-04-22
 
 ## Overview
 This project is an ESP32-based IoT client that:
@@ -61,11 +61,11 @@ Configured in platformio.ini.
 ## Blynk Integration
 Important handlers in src/main.cpp:
 - BLYNK_CONNECTED(): Writes boot metadata, resets counters, loads initial stats.
-- BLYNK_WRITE(V48): Terminal command parser.
+- BLYNK_WRITE(V49): Terminal command parser.
 - BLYNK_WRITE(V18): Removes stale IP data on server side.
 - BLYNK_WRITE(BLINK_TST): Sends BLK test command to all known nodes.
 
-### Terminal Commands on V48
+### Terminal Commands on V49
 - list: show valid commands
 - reboot: save queue status and reboot
 - up: print uptime
@@ -131,4 +131,4 @@ pio run -t uploadfs
 ## Recommended Next Improvements
 - Move hardcoded HTTP endpoint host into data/api.txt and load at startup.
 - Add retries and timeout metrics around HTTP GET and socket operations.
-- Add unit tests for parser logic in getSensorData() and command parsing in BLYNK_WRITE(V48).
+- Add unit tests for parser logic in getSensorData() and command parsing in BLYNK_WRITE(V49).

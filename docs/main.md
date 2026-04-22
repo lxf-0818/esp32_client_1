@@ -21,14 +21,14 @@ Primary ESP32 client runtime for Blynk integration, server polling, sensor fetch
 1. GET sensor list from `ip.php` via `performHttpGet()`
 2. parse with `getSensorData()` into `ipMap` (entries are parsed from `count|row,sensor:ip|...`)
 3. socket poll each server with `ALL`
-4. update Blynk terminal (V48) only when sensor list changes
+4. update Blynk terminal only when sensor list changes (`V46` start marker + lines to `V49`)
 5. update Blynk counters (V7, V20, V19, V34) and last message (V47)
 6. on error, writes status to V39 and returns early
 
 ## Blynk Handlers
 - `BLYNK_CONNECTED()`: boot state, reset counters, initial sync, fetch row count
 - `BLYNK_WRITE(V18)`: purge IP state from backend via `ipDelete`
-- `BLYNK_WRITE(V48)`: terminal command parser (see below)
+- `BLYNK_WRITE(V49)`: terminal command parser (see below)
 - `BLYNK_WRITE(BLINK_TST)`: send `BLK` command to all known nodes in `ipMap`
 
 Supported terminal commands:
@@ -47,11 +47,11 @@ Unrecognised commands return an error message to the terminal.
 ## Helper Functions
 - `performHttpGet(url)` — HTTP GET wrapper, returns response string or empty on failure
 - `getSensorData(sensorsConnected)` — parses `"count|row,sensor:ip|..."` string into `ipMap`, socket-polls each device
-- `getSensorData4User(input)` — resolves matching sensor IPs, polls each node with `ALL`, filters token rows by sensor tag, writes formatted values to terminal pin V48
+- `getSensorData4User(input)` — resolves matching sensor IPs, polls each node with `ALL`, filters token rows by sensor tag, writes formatted values to terminal pin V49
 - `upDateWidget(sensor, tokens[])` — writes sensor values to Blynk virtual pins; supports BME280, BMP390, SHT35, ADS1115, DS18B20
-- `getIP(sensorName)` — case-insensitive **substring** lookup that returns all matching IPs as a `|`-delimited string (e.g. `"bme"` matches `"BME280"`)
+- `getIP(sensorName)` — case-insensitive substring lookup that returns all matching IPs as a `|`-delimited string with trailing `|` (e.g. `"bme"` matches `"BME280"`)
 - `isServerConnected(serverIP, port)` — TCP connect/disconnect reachability check (default port 8888)
-- `printUptime()` — formats and writes uptime to Blynk terminal (V48)
+- `printUptime()` — formats and writes uptime to Blynk terminal (V49)
 - `checkSSD()` — I2C probe for SSD1306 OLED at `0x3C`
 - `flashSSD()` — displays "ESP32 Client PIO" and local IP on OLED
 - `generateInterrupt()` — manually invokes watchdog ISR for testing
@@ -63,7 +63,7 @@ Used by terminal commands `adc`, `bme`, `bmx`, and `ds1`.
 2. Calls `getIP(prefix)` and receives all matching IPs as a `|`-delimited list.
 3. Loops each IP and sends socket command `ALL`.
 4. Maps prefix to expected device tag and scans `tokens[i][0]` for matching rows.
-5. Formats result text and writes one line per matched device to V48.
+5. Formats result text and writes one line per matched device to V49.
 
 Tag mapping used by the function:
 - `bmx` -> `77`
@@ -77,7 +77,7 @@ Output behavior:
 - Default output label is `Temp` with unit `F`.
 - For `adc`, output label is `Volt` with unit `V`.
 - For `adc`, value is scaled by divider ratio (`tokens[i][3]`) before display.
-- If no matching IP is found, function returns `no ip@ for sensor ...`.
+- If no matching IP is found, function writes `no ip@ for sensor ...` to V49.
 
 ## Virtual Pin Map
 | Pin | Alias | Direction | Description |
@@ -94,7 +94,8 @@ Output behavior:
 | V26 | — | write | Reset reason |
 | V34 | VRETRY | write | retry counter |
 | V39 | — | write | Error / boot status messages |
-| V48 | — | read/write | Terminal (command input + output) |
+| V49 | — | read/write | Terminal (command input + output) |
+| V46 | — | write | Terminal refresh start marker (`"Start:"`) when sensor list changes |
 | V47 | — | write | Last status / warning message (`lastMsg`, updated each refresh cycle) |
 | V43 | — | write | ESP32 supply voltage (ADS1115: tokens[2]) |
 

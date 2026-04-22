@@ -8,7 +8,7 @@ Runs background tasks for queue-driven recovery and SQL HTTP posting, isolated f
 - QueHTTP_Handle: queue for HTTP post messages
 - xMutex_sock: socket synchronization mutex
 - xMutex_http: HTTP synchronization mutex
-- apiKey: loaded from LittleFS file /api.txt during RTOS init
+- phpKey: API key string consumed by RTOS HTTP task logic (loaded in login flow via decryptWifiCredentials())
 
 ## Task Topology
 initRTOS creates three pinned tasks:
@@ -43,11 +43,9 @@ Current constants:
 
 ### initRTOS()
 Initializes queues, tasks, mutexes, and GPIO for LED.
-Loads /api.txt from LittleFS and stores the content into apiKey.
 Restarts ESP32 if required tasks fail to start.
 
 Failure behavior in initRTOS:
-- If /api.txt cannot be opened, ESP restarts.
 - If any task handle is null after creation, ESP restarts.
 - Queue/mutex allocation failures are logged to serial.
 
@@ -65,6 +63,7 @@ Consumer loop for HTTP queue:
 Additional behavior:
 - Uses xMutex_http around HTTP transaction work.
 - Tracks passPost/failPost/recovered counters locally in task context.
+- Uses `delete.php?key=<id>` as the row cleanup endpoint on POST failure.
 
 ### taskSocketRecov(...)
 Consumes queued socket failures and retries command transmission.
@@ -79,25 +78,29 @@ Additional behavior:
 Builds URL-encoded payload from sensor values and enqueues into HTTP queue.
 
 Payload format:
-- api_key=<apiKey from /api.txt>
+- api_key=<phpKey loaded from /api.txt during login init>
 - sensor=<sensorName>
 - location=HOME
 - value1=<tokens[1] or ADS1115-scaled value>
 - value2=<tokens[2]>
 - value3=<passSocket>
 
+Queue behavior:
+- Enqueues only when queue exists and has free space.
+- If HTTP queue is full, logs an error and drops the message (no reset/retry at enqueue site).
+
 ### queStat()
 Utility to inspect queue state and gate restart behavior when work is still pending.
 
 Notes:
 - Waits up to 5 seconds for both queues to drain.
-- On success, takes both mutexes before returning true.
+- On success, takes both mutexes before returning true (caller path is typically followed by restart).
 
 ## Network Endpoints Used
 Hardcoded local endpoints are used for row delete/recovery and post actions, including:
 - post-esp-data.php
-- delete.php
-- deleteMAC.php
+- delete.php?key=<rowKey>
+- deleteIP.php?key=<ipAddress>
 
 ## Operational Notes
 - Queue backpressure is intentionally small; overflow triggers cleanup strategy.
