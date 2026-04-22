@@ -85,7 +85,7 @@ QueueHandle_t QueSocket_Handle, QueHTTP_Handle;
 TaskHandle_t socket_task_handle, http_task_handle, blink_task_handle;
 extern String lastMsg;
 extern int failSocket, passSocket, recoveredSocket, retry;
-String apiKey;
+extern String phpKey;
 
 // Function Prototypes
 void initRTOS();
@@ -153,14 +153,8 @@ void initRTOS()
     uint32_t socket_delay = SOCKET_DELAY_MS, http_delay = HTTP_DELAY_MS, blink_delay = BLINK_DELAY_MS;
     pinMode(LED_BUILTIN, OUTPUT);
     
-    File file = LittleFS.open("/api.txt", "r");
-    if (!file)
-    {
-        Serial.println("Failed to open blynkAuth.txt file for reading");
-        ESP.restart();
-    }
-    while (file.available())
-        apiKey.concat(static_cast<char>(file.read()));
+ 
+  ;
 
     QueSocket_Handle = xQueueCreate(SOCKET_QUEUE_SIZE, sizeof(socket_t));
     if (QueSocket_Handle == NULL)
@@ -423,7 +417,7 @@ void setupHTTP_request(String sensorName, float tokens[])
 
     if (QueHTTP_Handle != NULL && uxQueueSpacesAvailable(QueHTTP_Handle) > 0)
     {
-        String httpRequestData = "api_key=" + apiKey;
+        String httpRequestData = "api_key=" + phpKey;
         httpRequestData += "&sensor=" + sensorName;
         httpRequestData += "&location=" + sensorLocation;
         httpRequestData += "&value1=" + String(tmp);

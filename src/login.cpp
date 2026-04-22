@@ -46,6 +46,7 @@ byte enc_iv_to[N_BLOCK] ;
 byte enc_iv_from[N_BLOCK];
 char cleartext[INPUT_BUFFER_LIMIT] = {0};      // THIS IS INPUT BUFFER (FOR TEXT)
 char ciphertext[2 * INPUT_BUFFER_LIMIT] = {0}; // THIS IS OUTPUT BUFFER (FOR BASE64-ENCODED ENCRYPTED DATA)
+String phpKey;
 
 void aes_init();
 uint16_t encrypt_to_ciphertext(char *msg, byte iv[]);
@@ -53,6 +54,7 @@ void encrypt_stub(char *str, char *str2);
 void decrypt_to_cleartext(char *msg, uint16_t msgLen, byte iv[], char *cleartext);
 int decryptWifiCredentials(char *auth, char *ssid, char *pass);
 int readAES(char *fileName, byte data[]);
+String apiKey(char *fileName);
 
 void aes_init()
 {
@@ -194,6 +196,7 @@ int decryptWifiCredentials(char *auth, char *ssid, char *pass)
 
   readAES((char *)"/aes.txt", aes_key);
   readAES((char *)"/iv.txt", aes_iv);
+  phpKey = apiKey((char *)"/api.txt");
   file = LittleFS.open("/ssid_pass_aes.txt", "r");
   if (!file)
   {
@@ -214,6 +217,20 @@ int decryptWifiCredentials(char *auth, char *ssid, char *pass)
   strcpy(pass, (temp.substring(index + 1)).c_str());
 
   return 0;
+}
+String apiKey(char *fileName)
+{
+  File file = LittleFS.open(fileName, "r");
+  if (!file)
+  {
+    Serial.printf("Failed to open %s file for reading\n", fileName);
+    return "";
+  }
+  String key;
+  while (file.available())
+    key.concat(static_cast<char>(file.read()));
+
+  return key;
 }
 int readAES(char *fileName, byte data[])
 {
