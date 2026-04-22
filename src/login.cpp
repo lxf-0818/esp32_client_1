@@ -209,13 +209,13 @@ String readLittle(char *fileName)
     Serial.printf("Failed to open %s file for reading\n", fileName);
     return "";
   }
-  String key;
+  String returnString;
   while (file.available())
-    key.concat(static_cast<char>(file.read()));
+    returnString.concat(static_cast<char>(file.read()));
 
   file.close();
 
-  return key;
+  return returnString;
 }
 int readAES(char *fileName, byte data[])
 {
@@ -225,12 +225,12 @@ int readAES(char *fileName, byte data[])
     Serial.printf("Failed to open %s file for reading\n",fileName);
     return 2;
   }
-  String key;
+  String tmp;
   while (file.available())
-    key.concat(static_cast<char>(file.read()));
+    tmp.concat(static_cast<char>(file.read()));
 
   int foo, i = 0;
-  char *token = strtok((char *)key.c_str(), ",");
+  char *token = strtok((char *)tmp.c_str(), ",");
   while (token != NULL)
   {
     sscanf(token, "%x", &foo); // convert ASCII string to hex 0xYY
