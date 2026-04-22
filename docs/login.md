@@ -3,7 +3,7 @@
 ## Purpose
 The login module handles secure startup credentials for the ESP32 client:
 - reads Blynk auth token from LittleFS
-- reads AES key and IV from files
+- reads AES key and IV from LittleFS
 - decrypts WiFi credentials from encrypted storage
 
 ## Files Used from LittleFS

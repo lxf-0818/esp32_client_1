@@ -12,14 +12,14 @@ Runs background tasks for queue-driven recovery and SQL HTTP posting, isolated f
 
 ## Task Topology
 initRTOS creates three pinned tasks:
-- taskBlink (core 1, priority 1): heartbeat LED toggle
+- taskBlink (core 1, priority 1 - low): heartbeat LED toggle
 - taskSQL_HTTP (core 0, priority 2): POST sensor lines to backend
-- taskSocketRecov (core 1, priority 3): retry failed socket calls
+- taskSocketRecov (core 1, priority 3 - high): retry failed socket calls
 
 Queue sizes and stack sizes are compile-time constants.
 
 Current constants:
-- SOCKET_QUEUE_SIZE = 2
+- SOCKET_QUEUE_SIZE = 2 for testing 
 - HTTP_QUEUE_SIZE = 5
 - TASK_STACK_SIZE = 2048 (socket/http use 2x)
 - SOCKET_DELAY_MS = 50
@@ -53,7 +53,7 @@ Failure behavior in initRTOS:
 
 ### socketRecovery(IP, cmd)
 Pushes failed socket operation to socket queue.
-If queue is full, calls deleteMAC.php for the IP and resets the socket queue.
+If queue is full, calls deleteIP.php for the IP and resets the socket queue.
 
 ### taskSQL_HTTP(...)
 Consumer loop for HTTP queue:
