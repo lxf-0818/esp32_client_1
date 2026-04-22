@@ -152,10 +152,7 @@ void initRTOS()
 {
     uint32_t socket_delay = SOCKET_DELAY_MS, http_delay = HTTP_DELAY_MS, blink_delay = BLINK_DELAY_MS;
     pinMode(LED_BUILTIN, OUTPUT);
-    
- 
-  ;
-
+  
     QueSocket_Handle = xQueueCreate(SOCKET_QUEUE_SIZE, sizeof(socket_t));
     if (QueSocket_Handle == NULL)
         Serial.println("Queue  socket could not be created..");

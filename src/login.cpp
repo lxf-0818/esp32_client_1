@@ -54,7 +54,7 @@ void encrypt_stub(char *str, char *str2);
 void decrypt_to_cleartext(char *msg, uint16_t msgLen, byte iv[], char *cleartext);
 int decryptWifiCredentials(char *auth, char *ssid, char *pass);
 int readAES(char *fileName, byte data[]);
-String apiKey(char *fileName);
+String readLittle(char *fileName);
 
 void aes_init()
 {
@@ -183,31 +183,14 @@ int decryptWifiCredentials(char *auth, char *ssid, char *pass)
     Serial.println("Error mounting the file system");
     ESP.restart();
   }
-  File file = LittleFS.open("/blynkAuth.txt", "r");
-  if (!file)
-  {
-    Serial.println("Failed to open blynkAuth.txt file for reading");
-    ESP.restart();
-  }
-  tmp.clear();
-  while (file.available())
-    tmp.concat(static_cast<char>(file.read()));
-  strcpy(auth, tmp.c_str());
 
   readAES((char *)"/aes.txt", aes_key);
   readAES((char *)"/iv.txt", aes_iv);
-  phpKey = apiKey((char *)"/api.txt");
-  file = LittleFS.open("/ssid_pass_aes.txt", "r");
-  if (!file)
-  {
-    Serial.println("Failed to open ssid_pass_aes.txt file for reading");
-    return 2;
-  }
-  ssid_psw_aes.clear();
-  while (file.available())
-    ssid_psw_aes.concat(static_cast<char>(file.read()));
+  phpKey = readLittle((char *)"/api.txt");
+  ssid_psw_aes = readLittle((char *)"/ssid_pass_aes.txt");
+  String blyAuth = readLittle((char *)"/blynkAuth.txt");
+  strcpy(auth, blyAuth.c_str());
 
-  file.close();
   // save a copy decrypt_to_cleartext() corrupts byte array aes_iv!
   memcpy(enc_iv_to, aes_iv, sizeof(aes_iv));
   decrypt_to_cleartext((char *)ssid_psw_aes.c_str(), ssid_psw_aes.length(), enc_iv_to, cleartext);
@@ -218,7 +201,7 @@ int decryptWifiCredentials(char *auth, char *ssid, char *pass)
 
   return 0;
 }
-String apiKey(char *fileName)
+String readLittle(char *fileName)
 {
   File file = LittleFS.open(fileName, "r");
   if (!file)
@@ -229,6 +212,8 @@ String apiKey(char *fileName)
   String key;
   while (file.available())
     key.concat(static_cast<char>(file.read()));
+
+  file.close();
 
   return key;
 }
@@ -252,5 +237,6 @@ int readAES(char *fileName, byte data[])
     data[i++] = foo;
     token = strtok(NULL, ",");
   }
+  file.close();
   return 0;
 }
