@@ -131,19 +131,19 @@ int socketClient(char *espServer, char *command, bool updateErrorQueue)
             return 2;
         }
     }
-    int index = 0;
+    int index = 0, index1 = 0, calculatedCrc;
     while (client.available())
         str[index++] = client.read(); // read sensor data from sever
     client.stop();
+    // Serial.printf("data %s\n", str);
 
-    int calculatedCrc;
     String copyStr = str;
-
-    client.stop();
     index = copyStr.indexOf(":");
+    index1 = copyStr.lastIndexOf(":");
     String crcString = copyStr.substring(0, index);
-    sscanf(crcString.c_str(), "%x", &calculatedCrc); //convert ASCII string to hex 0xYY
-    String parsed = copyStr.substring(index + 1);
+    sscanf(crcString.c_str(), "%x", &calculatedCrc); // convert ASCII string to hex 0xYY
+
+    String parsed = copyStr.substring(index + 1, index1);
     crc.add((uint8_t *)parsed.c_str(), parsed.length());
     if (calculatedCrc != crc.calc())
     {
@@ -155,16 +155,28 @@ int socketClient(char *espServer, char *command, bool updateErrorQueue)
         }
         return 3;
     }
-    
+    byte new_iv[16];
+    int i = 0, iv_tmp;
+
+    // AES Initialization Vector (IV) is a random, non-secret value used to ensure that encrypting the 
+    // same plaintext with the same key produces unique ciphertext, preventing pattern recognition.
+    String IV = copyStr.substring(index1 + 1);
+    char *token1 = strtok((char *)IV.c_str(), ",");
+    while (token1 != NULL)
+    {
+        sscanf(token1, "%x", &iv_tmp); // convert ASCII string to hex 0xYY
+        new_iv[i++] = iv_tmp;
+        token1 = strtok(NULL, ",");
+    }
+
 #ifdef SOCKET_AES
     // make a copy decrypt_to_cleartext() corrupts byte array aes_iv!
-    memcpy(enc_iv_to, aes_iv, sizeof(aes_iv));
+    memcpy(enc_iv_to, new_iv, sizeof(new_iv));
     decrypt_to_cleartext((char *)parsed.c_str(), parsed.length(), enc_iv_to, cleartext);
     parsed = String(cleartext);
 #endif
 
-
-    // crc passed now tokenize the data from the server 
+    // crc passed now tokenize the data from the server
     memset(tokens, 0, sizeof(tokens));
     char *token = strtok((char *)parsed.c_str(), ",");
     int j = 0, z = 0;
