@@ -93,8 +93,8 @@ void decrypt_to_cleartext(char *msg, uint16_t msgLen, byte iv[], char *cleartext
 int socketClient(char *espServer, char *command, bool updateErrorQueue)
 {
     extern float tokens[5][5];
-    char str[200];
-    bzero(str, 200);
+    char str[500];
+    bzero(str, 500);
     WiFiClient client;
     CRC32 crc;
 
@@ -135,7 +135,10 @@ int socketClient(char *espServer, char *command, bool updateErrorQueue)
     while (client.available())
         str[index++] = client.read(); // read sensor data from sever
     client.stop();
-    // Serial.printf("data %s\n", str);
+#define TRACE
+#ifdef TRACE
+    Serial.printf("conected to %s received %s\n", espServer, str);
+#endif
 
     String copyStr = str;
     index = copyStr.indexOf(":");
@@ -158,7 +161,7 @@ int socketClient(char *espServer, char *command, bool updateErrorQueue)
     byte new_iv[16];
     int i = 0, iv_tmp;
 
-    // AES Initialization Vector (IV) is a random, non-secret value used to ensure that encrypting the 
+    // AES Initialization Vector (IV) is a random, non-secret value used to ensure that encrypting the
     // same plaintext with the same key produces unique ciphertext, preventing pattern recognition.
     String IV = copyStr.substring(index1 + 1);
     char *token1 = strtok((char *)IV.c_str(), ",");

@@ -11,10 +11,14 @@ and dispatches them to widgets and SQL queue handlers.
 - typical command: ALL
 - control commands: BLK, RST
 
-Expected server response for sensor reads:
-`<crc_hex>:<payload>`
+Expected server response for sensor reads (AES on):
+ `<crc_hex>:<ciphertext>:<iv_hex_csv>`
 
-If SOCKET_AES is enabled by default, payload is AES/base64 and must be decrypted before parsing.
+- CRC is verified over the **ciphertext** substring (between first `:` and last `:`).
+- IV is the comma-separated hex bytes after the last `:`; parsed into a 16-byte array before decryption.
+- After CRC passes, ciphertext is AES-decrypted using the extracted IV to recover the plaintext payload.
+
+If `SOCKET_AES` is disabled (not defined), the server sends `<crc_hex>:<plaintext>` and decryption is skipped.
 
 ## Main APIs
 
@@ -51,8 +55,11 @@ Current limits/behavior:
 
 ### processSensorData(tokens)
 Maps sensor IDs to names and forwards each row to:
-- setupHTTP_request(sensorName, values)
-- upDateWidget(sensorName, values)
+- `setupHTTP_request(sensorName, values)`
+- `upDateWidget(sensorName, values)`
+- increments `passSocket` for each recognized sensor row.
+
+Unknown sensor codes are silently skipped.
 
 Sensor ID mapping:
 - 77 -> BMP390
@@ -68,6 +75,11 @@ Example logical shape:
 `id,val1,val2,|,id,val1,val2,val3`
 
 Tokenizer writes numeric values into a fixed 5x5 float matrix.
+
+## Compile Flags
+- `SOCKET_AES` — enabled by default (`#define SOCKET_AES`); enables AES decryption of socket payload.
+- `DEBUG_TOKENS` — when defined, calls `printTokens()` to dump the parsed token matrix to Serial after each successful receive.
+- `NO_UPDATE_FAIL` — defined as `0`; reserved constant.
 
 ## Reliability and Recovery
 - timeout and connect failures are queued for retry
