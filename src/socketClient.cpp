@@ -49,7 +49,7 @@
 
 extern String lastMsg;
 extern int failSocket, passSocket, recoveredSocket, retry;
-extern byte enc_iv_to[16], aes_iv[16];
+extern byte enc_iv_copy[16], aes_iv[16];
 extern char cleartext[];
 void taskSQL_HTTP(void *pvParameters);
 void setupHTTP_request(String sensorName, float tokens[]);
@@ -174,8 +174,8 @@ int socketClient(char *espServer, char *command, bool updateErrorQueue)
 
 #ifdef SOCKET_AES
     // make a copy decrypt_to_cleartext() corrupts byte array aes_iv!
-    memcpy(enc_iv_to, new_iv, sizeof(new_iv));
-    decrypt_to_cleartext((char *)parsed.c_str(), parsed.length(), enc_iv_to, cleartext);
+    memcpy(enc_iv_copy, new_iv, sizeof(new_iv));
+    decrypt_to_cleartext((char *)parsed.c_str(), parsed.length(), enc_iv_copy, cleartext);
     parsed = String(cleartext);
 #endif
 

@@ -16,7 +16,7 @@
 #include <Arduino.h>
 #include <AESLib.h>
 #include <LittleFS.h>
- #define INPUT_BUFFER_LIMIT 2048
+#define INPUT_BUFFER_LIMIT 2048
 AESLib aeslib;
 byte aes_key[N_BLOCK];      ///< Master AES-128 key — loaded from /aes.txt, never passed directly to AESLib
 byte aes_key_copy[N_BLOCK]; ///< Scratch copy of aes_key passed to AESLib (mutated in-place by each call)

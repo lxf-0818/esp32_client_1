@@ -15,13 +15,13 @@ across the ESP32 client firmware:
 |---|---|---|
 | `aes_key[N_BLOCK]` | 16 bytes | Active AES-128 key loaded from `/aes.txt` |
 | `aes_iv[N_BLOCK]` | 16 bytes | Active AES IV loaded from `/iv.txt` |
-| `enc_iv_to[N_BLOCK]` | 16 bytes | Scratch IV used when encrypting (copy of `aes_iv`, mutated by AESLib) |
+| `enc_iv_copy[N_BLOCK]` | 16 bytes | Scratch IV used when encrypting (copy of `aes_iv`, mutated by AESLib) |
 | `enc_iv_from[N_BLOCK]` | 16 bytes | Scratch IV used when decrypting (copy of `aes_iv`, mutated by AESLib) |
 | `cleartext[]` | 2048 bytes | Plaintext workspace |
 | `ciphertext[]` | 4096 bytes | Base64-encoded ciphertext output workspace |
 | `phpKey` | `String` | PHP API key read from `/api.txt` |
 
-> AESLib mutates the IV in-place on every call. The `enc_iv_to` / `enc_iv_from`
+> AESLib mutates the IV in-place on every call. The `enc_iv_copy` / `enc_iv_from`
 > scratch buffers protect the original `aes_iv` by passing copies to each operation.
 
 ## Filesystem Inputs
@@ -38,13 +38,13 @@ across the ESP32 client firmware:
 
 ### aes_init()
 Sets AESLib padding mode to `0` (zero-padding) and copies `aes_iv` into both
-`enc_iv_to` and `enc_iv_from`. Must be called before any encrypt or decrypt
+`enc_iv_copy` and `enc_iv_from`. Must be called before any encrypt or decrypt
 operation.
 
 ### encrypt_stub(str, aes_encrypt)
 High-level encrypt entry point.
-1. Copies `aes_iv` → `enc_iv_to`.
-2. Calls `encrypt_to_ciphertext(str, enc_iv_to)`.
+1. Copies `aes_iv` → `enc_iv_copy`.
+2. Calls `encrypt_to_ciphertext(str, enc_iv_copy)`.
 3. Copies the result from the global `ciphertext[]` into `aes_encrypt`.
 
 `aes_encrypt` must be at least `2 × INPUT_BUFFER_LIMIT` (4096) bytes.
@@ -74,7 +74,7 @@ Mounts LittleFS and decrypts stored Wi-Fi credentials and Blynk auth token.
 3. Reads PHP API key from `/api.txt` into `phpKey` via `readLittle()`.
 4. Reads encrypted credentials from `/ssid_pass_aes.txt` via `readLittle()`.
 5. Reads Blynk token from `/blynkAuth.txt` via `readLittle()`; copies into `auth`.
-6. Copies `aes_iv` → `enc_iv_to`, calls `decrypt_to_cleartext()`.
+6. Copies `aes_iv` → `enc_iv_copy`, calls `decrypt_to_cleartext()`.
 7. Splits the resulting `SSID:PASSWORD` string on `:` and copies into `ssid` / `pass`.
 
 Return value:
