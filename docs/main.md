@@ -48,13 +48,14 @@ Unrecognised commands return an error message to the terminal.
 - `performHttpGet(url)` — HTTP GET wrapper, returns response string or empty on failure
 - `getSensorData(sensorsConnected)` — parses `"count|row,sensor:ip|..."` string into `ipMap`, socket-polls each device
 - `getSensorData4User(input)` — resolves matching sensor IPs, polls each node with `ALL`, filters token rows by sensor tag, writes formatted values to terminal pin V49
-- `upDateWidget(sensor, tokens[])` — writes sensor values to Blynk virtual pins; supports BME280, BMP390, SHT35, ADS1115, DS18B20
+- `upDateWidget(sensor, tokens[])` — writes sensor values to Blynk virtual pins; supports BME280, BMP390, SHT35, ADS1115 (DS18B20 is not handled — no matching branch exists)
 - `getIP(sensorName)` — case-insensitive substring lookup that returns all matching IPs as a `|`-delimited string with trailing `|` (e.g. `"bme"` matches `"BME280"`)
 - `isServerConnected(serverIP, port)` — TCP connect/disconnect reachability check (default port 8888)
 - `printUptime()` — formats and writes uptime to Blynk terminal (V49)
 - `checkSSD()` — I2C probe for SSD1306 OLED at `0x3C`
 - `flashSSD()` — displays "ESP32 Client PIO" and local IP on OLED
 - `generateInterrupt()` — manually invokes watchdog ISR for testing
+- `ping()` — TCP-pings every entry in `ipMap` 4 times and HTTP-pings `ipList` 4 times; writes pass/dead counts and elapsed time to V49
 
 ## getSensorData4User Flow
 Used by terminal commands `adc`, `bme`, `bmx`, and `ds1`.

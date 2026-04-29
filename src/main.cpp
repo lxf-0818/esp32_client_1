@@ -19,7 +19,7 @@
  * - Ticker for watchdog timer
  *
  * @author Leon Freimour
- * @date YYYY-MM-DD
+ * @date 2026-04-29
  *
  * @note Replace sensitive information such as Blynk authentication tokens before deployment.
  *
@@ -483,9 +483,11 @@ String performHttpGet(const char *url)
  * @details The function performs the following steps:
  *          1. Extracts the number of devices from the input string.
  *          2. Iterates through each device's information, extracting the sensor name and IP address.
- *          3. Stores the sensor name and IP address in a map (`ipMap`).
- *          4. Attempts to read sensor data from each device using the `socketClient` function.
- *          5. Logs debugging information if the DEBUG or DEBUG_LIST macros are defined.
+ *          3. Appends "_<index>" to each sensor name before storing it as an `ipMap` key to prevent
+ *             key collisions when multiple boards report the same sensor type (e.g. two DS18B20 nodes).
+ *          4. Stores the unique sensor name and IP address in `ipMap`.
+ *          5. Attempts to read sensor data from each device using the `socketClient` function.
+ *          6. Logs debugging information if the DEBUG or DEBUG_LIST macros are defined.
  *
  * @warning The function modifies the input string `sensorsConnected` during processing.
  *          Ensure that the input string is not needed elsewhere in its original form.
@@ -543,13 +545,19 @@ int getSensorData(const String &sensorsConnected)
  * (configured as a terminal widget in the Blynk app). It reads the input string
  * and logs it to the serial monitor for further processing.
  *
- * * Commands:
- * - "refr": Resets sensor connection status, refreshes widgets, and resets
- *           failure/recovery counters.
- * - "test": Triggers a test interrupt by calling the `generateInterrupt` function.
- * - "ping": Iterates through a map of IP addresses, checks server connectivity,
- *           and sends the results back to the terminal widget on V49.
- *
+ * Supported commands:
+ * - "list":  prints all valid commands to V49.
+ * - "reboot": calls `queStat()` then restarts the ESP32.
+ * - "up":    writes formatted uptime (days/hours/minutes/seconds) to V49.
+ * - "ping":  TCP-pings every entry in `ipMap` 4 times and HTTP-pings `ipList` 4 times;
+ *            reports pass/dead counts and elapsed time to V49.
+ * - "adc":   fetches ADS1115 voltage reading for matching nodes via `getSensorData4User()`.
+ * - "bme":   fetches BME280 temperature reading for matching nodes via `getSensorData4User()`.
+ * - "bmx":   fetches BMP390 temperature reading for matching nodes via `getSensorData4User()`.
+ * - "ds1":   fetches DS18B20 temperature reading for matching nodes via `getSensorData4User()`.
+ * - "refr":  clears `lastSensorsConnected`, calls `refreshWidgets()`, and resets
+ *            fail/recovered/retry counters.
+ * Unrecognised input writes an error message to V49.
  *
  * @param param The parameter object containing the string sent to the terminal widget.
  */
@@ -708,7 +716,8 @@ bool checkSSD()
  * returns empty string "".
  *
  * @param sensorName The name of the sensor to look up.
- * @return String The IP address of the sensor if found, or "foo" if not found.
+ * @return String All matching IP addresses as a `|`-delimited string with a trailing `|`
+ *         (e.g. `"192.168.1.5|"`), or an empty string if no match is found.
  */
 // #define DEBUG_
 String getIP(String sensorName)
@@ -746,6 +755,8 @@ String getIP(String sensorName)
  * @note For "adc" sensors the raw voltage is multiplied by the voltage-divider ratio stored
  *       in `tokens[i][3]` to produce the actual 12 V reading.
  * @note If no IP is found for the sensor prefix, an error message is written to V49.
+ * @note `std::map::find()` is intentionally avoided: constructing a `std::string` key from
+ *       `String::c_str()` triggers a lookup bug. The tag map is iterated manually instead.
  */
 void getSensorData4User(String input)
 {
@@ -834,7 +845,10 @@ void ping()
   // Iterate over all registered sensor-IP pairs and perform a connectivity check.
   // Each device is pinged 4 times via TCP connect/disconnect (isServerConnected).
   // Results (pass/dead counts and elapsed time) are reported back to the Blynk
-  // terminal (V49). If any ping fails, the terminal color is set to red there is a know bug code removed
+  // terminal (V49). Setting terminal color on failure was removed: Blynk.setProperty
+  // inside a non-BLYNK_WRITE context had no effect (known platform limitation).
+  // The `_i` index suffix appended to ipMap keys by getSensorData() is stripped before
+  // display so the user-facing sensor name is clean (e.g. "BME280" not "BME280_0").
   for (const auto &pair : ipMap)
   {
     alive = dead = 0;
