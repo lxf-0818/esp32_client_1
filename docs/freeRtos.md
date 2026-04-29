@@ -19,13 +19,17 @@ initRTOS creates three pinned tasks:
 Queue sizes and stack sizes are compile-time constants.
 
 Current constants:
-- SOCKET_QUEUE_SIZE = 2 for testing 
+- SOCKET_QUEUE_SIZE = 2 (for testing)
 - HTTP_QUEUE_SIZE = 5
-- TASK_STACK_SIZE = 2048 (socket/http use 2x)
+- TASK_STACK_SIZE = 2048 (socket/http tasks use 2×)
 - SOCKET_DELAY_MS = 50
 - HTTP_DELAY_MS = 100
 - BLINK_DELAY_MS = 1000
 - MAX_RETRY = 5
+- NO_UPDATE_FAIL = 0 (flag passed to socketClient to suppress double-counting fail stats during recovery)
+- MAX_LINE_LENGTH = 120 (max bytes for HTTP POST payload string in `message_t`)
+- WORDS_PER_BYTE = 4 (stack high-water mark word → byte conversion factor)
+- LED_BUILTIN = 2 (GPIO pin for heartbeat LED)
 
 ## Queue Data Types
 
@@ -38,6 +42,17 @@ Current constants:
 - device name
 - encoded post line payload
 - key for delete/recovery actions
+
+## Tasks
+
+| Task | Core | Priority | Stack | Delay |
+|---|---|---|---|---|
+| `taskBlink` | 1 | 1 | TASK_STACK_SIZE | BLINK_DELAY_MS |
+| `taskSQL_HTTP` | 0 | 2 | TASK_STACK_SIZE × 2 | HTTP_DELAY_MS |
+| `taskSocketRecov` | 1 | 3 | TASK_STACK_SIZE × 2 | SOCKET_DELAY_MS |
+| `taskPing` | — | — | — | — |
+
+> `taskPing` has a function prototype but its implementation is **commented out** and is not active.
 
 ## Main Functions
 

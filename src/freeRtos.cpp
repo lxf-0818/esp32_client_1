@@ -60,7 +60,6 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <time.h>
-#include <CRC32.h>
 #include <Wire.h>
 #include <LittleFS.h>
 
