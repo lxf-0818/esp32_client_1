@@ -17,7 +17,7 @@
  *
  * @note
  * - The `SOCKET_AES` macro enables AES decryption for socket communication.
- * - The `DEBUG` macro enables debug output for token printing.
+ * - The `DEBUG_TOKENS` macro enables debug output for token printing via `printTokens()`.
  * - The file uses a map to associate sensor ids with their corresponding sensor names.
  *
  * @dependencies
