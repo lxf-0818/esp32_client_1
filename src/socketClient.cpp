@@ -173,13 +173,10 @@ int socketClient(char *espServer, char *command, bool updateErrorQueue)
     }
 
 #ifdef SOCKET_AES
-    // make a copy decrypt_to_cleartext() corrupts byte array aes_iv!
-    memcpy(enc_iv_copy, new_iv, sizeof(new_iv));
+    memcpy(enc_iv_copy, new_iv, sizeof(new_iv)); //since new iv is gen every i/o might not need?
     decrypt_to_cleartext((char *)parsed.c_str(), parsed.length(), enc_iv_copy, cleartext);
     parsed = String(cleartext);
 #endif
-
-    // crc passed now tokenize the data from the server
     memset(tokens, 0, sizeof(tokens));
     char *token = strtok((char *)parsed.c_str(), ",");
     int j = 0, z = 0;
@@ -214,9 +211,7 @@ int socketClient(char *espServer, char *command, bool updateErrorQueue)
  *
  * @param tokens A 2D array of sensor data, where each row represents a sensor's data.
  *               The first element in each row is the sensor code (as a float).
- * @note The function uses a predefined mapping of sensor codes to sensor names for identification.
- *       If a sensor code is not found in the mapping, the function continues to next.
- * @note A previous bug related to "Stack canary" exceptions was resolved by increasing the stack size.
+  * @note A previous bug related to "Stack canary" exceptions was resolved by increasing the stack size.
  */
 void processSensorData(float tokens[5][5])
 {
@@ -308,18 +303,6 @@ void printTokens(float tokens[5][5])
  */
 char *socketClient(char *espServer, char *command)
 {
-    // char *socketClient(char *espServer, char *command)
-    // {
-    //   // Placeholder implementation for socketClient
-    //   char *response = (char *)malloc(100);
-    //   if (response == nullptr)
-    //   {
-    //     Serial.println("Memory allocation failed");
-    //     return nullptr;
-    //   }
-    //   snprintf(response, 100, "Response from %s with command %s", espServer, command);
-    //   return response;
-    // }
     int j = 0;
     WiFiClient client;
     if (!client.connect(espServer, PORT))

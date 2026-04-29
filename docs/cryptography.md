@@ -6,7 +6,7 @@ across the ESP32 client firmware:
 - initialise AES library (padding mode)
 - encrypt plaintext to base64-encoded ciphertext
 - decrypt base64-encoded ciphertext to plaintext
-- read and parse comma-separated hex key/IV files from LittleFS
+- read and parse comma-separated hex key/IV files from LittleFS (IV used only for Wi-Fi credentials, key is the master for all)
 - mount LittleFS, decrypt stored Wi-Fi credentials, and retrieve the Blynk auth token
 
 ## Global Buffers
@@ -37,8 +37,7 @@ across the ESP32 client firmware:
 ## Key APIs
 
 ### aes_init()
-Sets AESLib padding mode to `0` (zero-padding) and copies `aes_iv` into both
-`enc_iv_copy` and `enc_iv_from`. Must be called before any encrypt or decrypt
+Sets AESLib padding mode to `0` (zero-padding) . Must be called before any encrypt or decrypt
 operation.
 
 ### encrypt_stub(str, aes_encrypt)

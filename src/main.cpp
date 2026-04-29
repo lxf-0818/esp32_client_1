@@ -215,7 +215,7 @@ void refreshWidgets() // called every x seconds by SimpleTimer
 {
   char tmp[256];
   String sensorsConnected = performHttpGet(ipList);
-  // Serial.printf("sensor connrcted %s\n", sensorsConnected.c_str());
+  Serial.printf("sensor connrcted %s\n", sensorsConnected.c_str());
   if (sensorsConnected.isEmpty())
   {
     sprintf(tmp, "Failed to fetch sensors from mySQL ");
@@ -235,8 +235,10 @@ void refreshWidgets() // called every x seconds by SimpleTimer
     Blynk.virtualWrite(V46, "\nStart:\n");
     for (const auto &pair : ipMap)
     {
-      Serial.printf("Sensor: %s, IP: %s\n", pair.first.c_str(), pair.second.c_str());
-      sprintf(tmp, "\tSensor: %s, IP: %s\n", pair.first.c_str(), pair.second.c_str());
+      String identifier = pair.first.c_str(); // remove the unique name identifier 
+      identifier = identifier.substring(0, identifier.length() - 2);
+      Serial.printf("Sensor: %s, IP: %s\n", identifier.c_str(), pair.second.c_str());
+      sprintf(tmp, "\tSensor: %s, IP: %s\n", identifier.c_str(), pair.second.c_str());
       Blynk.virtualWrite(V49, tmp);
     }
     sprintf(tmp, "\n\tenter 'list' for valid commands\n");
@@ -512,8 +514,10 @@ int getSensorData(const String &sensorsConnected)
     String ip = sensorConnected.substring(index + 1, index2);
     String sensorName = sensorConnected.substring(index1 + 1, index);
 
+    sensorName = sensorName + "_" + i; // create unique name to fix the bug below!
+
     // update map with IP address , used downstream for connecting to server from terminal(V48)
-    ipMap[sensorName.c_str()] = ip.c_str(); 
+    ipMap[sensorName.c_str()] = ip.c_str(); // bug when multpule boards of the same sensor name
 // #define DEBUG_1
 #ifdef DEBUG_1
     Serial.printf("Sensor: %s, IP: %s\n", sensorName.c_str(), ip.c_str());
@@ -834,7 +838,9 @@ void ping()
   for (const auto &pair : ipMap)
   {
     alive = dead = 0;
-    sprintf(tmp, "%s %s:\n", pair.first.c_str(), pair.second.c_str());
+    String identifier = pair.first.c_str();  //bug fixed!
+    identifier = identifier.substring(0, identifier.length() - 2);
+    sprintf(tmp, "%s %s:\n", identifier.c_str(), pair.second.c_str());
     for (int j = 0; j < 4; j++)
     {
       if (isServerConnected(pair.second.c_str()))
