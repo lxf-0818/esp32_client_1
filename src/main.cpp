@@ -19,34 +19,44 @@
  * - Ticker for watchdog timer
  *
  * @author Leon Freimour
- * @date 2026-04-29
+ * @date 2026-04-30
  *
- * @note Replace sensitive information such as Blynk authentication tokens before deployment.
+ * @note The Blynk auth token is stored encrypted in LittleFS (/blynkAuth.txt) and
+ *       decrypted at boot by cryptography.cpp. Do not hard-code it in source.
  *
  * @section Functions
+ * Functions defined in this file:
  * - setup(): Initializes the system, connects to Wi-Fi, and sets up Blynk and the OLED display.
  * - loop(): Runs the Blynk and timer tasks.
- * - flashSSD(): Displays basic information on the OLED screen.
- * - refreshWidgets(): Periodically fetches device data from the server(s) and updates Blynk widgets.
- * - lwdtcb(): Watchdog timer callback to restart the system if the loop hangs.
- * - lwdtFeed(): Feeds the watchdog timer to prevent unnecessary restarts.
- * - upDateWidget(): Updates Blynk widgets with sensor data based on the sensor type.
- * - decryptWifiCredentials(): Decrypts Wi-Fi credentials for secure connection.
- * - socketClient(): Handles socket communication with devices.
- * - queStat(): Checks the status of the error queues.
+ * - flashSSD(): Renders a startup screen on the OLED display.
+ * - checkSSD(): Probes the I2C bus for an SSD1306 OLED at address 0x3C.
+ * - refreshWidgets(): Periodically fetches sensor data from the server and updates Blynk widgets.
+ * - lwdtcb(): Watchdog timer ISR — restarts the system if the loop hangs.
+ * - lwdtFeed(): Resets the loop watchdog heartbeat timestamp.
+ * - upDateWidget(): Writes sensor readings to Blynk virtual pins based on sensor type.
+ * - performHttpGet(): HTTP GET wrapper; returns response string or empty on failure.
+ * - getSensorData(): Parses sensor/IP list from the server and socket-polls each device.
+ * - getSensorData4User(): Resolves sensor IPs and reports live readings to the Blynk terminal.
+ * - getIP(): Case-insensitive map lookup; returns matching IPs as a '|'-delimited string.
+ * - isServerConnected(): TCP reachability check for a given IP and port.
+ * - printUptime(): Formats and writes uptime to the Blynk terminal (V49).
+ * - ping(): TCP-pings all ipMap entries and HTTP-pings ipList; reports results to V49.
+ * - generateInterrupt(): Manually invokes the watchdog ISR for testing.
  * - BLYNK_CONNECTED(): Callback for Blynk connection events.
- * - BLYNK_WRITE(): Handles virtual pin writes from the Blynk app.
+ * - BLYNK_WRITE(V18): Clears remote IP registrations via HTTP GET.
+ * - BLYNK_WRITE(V49): Terminal command parser.
+ * - BLYNK_WRITE(BLINK_TST): Sends BLK test command to all known sensor nodes.
  *
  * @section Constants
- * - BLYNK_TEMPLATE_ID, BLYNK_TEMPLATE_NAME, BLYNK_AUTH_TOKEN: Blynk configuration constants.
- * - SCREEN_WIDTH, SCREEN_HEIGHT: OLED display dimensions.
- * - LWD_TIMEOUT: Timeout value for the loop watchdog timer.
- * - Various server URLs for fetching and managing device data.
+ * - BLYNK_TEMPLATE_ID, BLYNK_TEMPLATE_NAME: Blynk project identifiers.
+ * - SCREEN_WIDTH, SCREEN_HEIGHT: OLED display dimensions (128 x 64 px).
+ * - LWD_TIMEOUT: Loop watchdog timeout in milliseconds (15 000 ms).
+ * - Server endpoint strings (ipList, ipDelete, getRowCnt, deleteAll, esp_data).
  *
  * @section Notes
- * - Debugging can be enabled by defining the DEBUG macron.
- * - Ensure the OLED display is properly connected to the ESP32.
- * - The program assumes a specific server API for fetching device data.
+ * - Define DEBUG to enable verbose Serial output in selected functions.
+ * - Ensure the OLED is wired to the correct I2C pins before enabling the display.
+ * - Server endpoint host addresses are hardcoded to 192.168.1.252; update if the server IP changes.
  */
 #define BLYNK_TEMPLATE_ID "TMPL21W-vgTej"
 #define BLYNK_TEMPLATE_NAME "autoStart"

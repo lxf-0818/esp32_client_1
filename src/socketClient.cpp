@@ -78,14 +78,18 @@ void decrypt_to_cleartext(char *msg, uint16_t msgLen, byte iv[], char *cleartext
  * 1. Attempts to connect to the server using the provided address and PORT.
  * 2. Sends the specified command to the server if the connection is successful.
  * 3. Waits for a response from the server with a timeout of 5 seconds.
- * 4. Reads the response data and decrypts (optionally it if AES encryption is enabled).
- * 5. Validates the response using CRC to ensure data integrity.
- * 6. Parses the response data into tokens and processes the sensor data.
+ * 4. Reads the response into a local buffer.
+ * 5. Validates the CRC32 over the ciphertext substring.
+ * 6. Decrypts the payload with AES-128-CBC when SOCKET_AES is defined.
+ * 7. Tokenizes the plaintext records into the global `tokens[5][5]` float matrix.
  *
- * If the connection fails, times out, or CRC validation fails, the function updates the error recovery queue
- * (if `updateErrorQueue` is true) and increments the failure counter (`failSocket`).
+ * On failure the function sets `lastMsg` to a descriptive error string and returns
+ * a non-zero code. Recovery actions (calling `socketRecovery()`, incrementing
+ * `failSocket`) are the caller's responsibility.
  *
- * @note The function uses global variables such as `lastMsg`, `failSocket`, and `PORT`.
+ * @note `updateErrorQueue` is accepted for API symmetry but is currently unused
+ *       (`(void)updateErrorQueue`). The parameter is reserved for future use.
+ * @note Updates global `lastMsg` on connect failure, timeout, and CRC mismatch.
  *
  * @warning Ensure that the server address and command strings are properly null-terminated.
  *
