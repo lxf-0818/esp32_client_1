@@ -215,7 +215,7 @@ void refreshWidgets() // called every x seconds by SimpleTimer
 {
   char tmp[256];
   String sensorsConnected = performHttpGet(ipList);
-  Serial.printf("sensor connrcted %s\n", sensorsConnected.c_str());
+  //Serial.printf("sensor connrcted %s\n", sensorsConnected.c_str());
   if (sensorsConnected.isEmpty())
   {
     sprintf(tmp, "Failed to fetch sensors from mySQL ");
