@@ -38,11 +38,16 @@ Flow:
 6. verify CRC32
 7. decrypt payload when SOCKET_AES is defined
 8. tokenize records into `tokens[5][5]`
-9. call processSensorData(tokens) only when `updateErrorQueue == true`
+9. return 0 on success
+
+> **Note:** `updateErrorQueue` is accepted as a parameter but is currently unused
+> (`(void)updateErrorQueue` suppresses the compiler warning). Failure recovery
+> (calling `socketRecovery()` and incrementing `failSocket`) is the caller's responsibility.
 
 Failure handling:
-- if `updateErrorQueue == true`: enqueue recovery via `socketRecovery()` and increment `failSocket`
-- if `updateErrorQueue == false`: return error code without queue/counter updates
+- On connect failure, timeout, or CRC mismatch the function returns an error code (1/2/3).
+- The caller (`getSensorData` in main.cpp) checks the return code and calls
+  `socketRecovery()` / increments `failSocket` as needed.
 
 ### socketClient(espServer, command)
 Overload for control commands that returns malloc-allocated response buffer.

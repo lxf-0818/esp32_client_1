@@ -15,14 +15,13 @@ across the ESP32 client firmware:
 |---|---|---|
 | `aes_key[N_BLOCK]` | 16 bytes | Active AES-128 key loaded from `/aes.txt` |
 | `aes_iv[N_BLOCK]` | 16 bytes | Active AES IV loaded from `/iv.txt` |
-| `enc_iv_copy[N_BLOCK]` | 16 bytes | Scratch IV used when encrypting (copy of `aes_iv`, mutated by AESLib) |
-| `enc_iv_from[N_BLOCK]` | 16 bytes | Scratch IV used when decrypting (copy of `aes_iv`, mutated by AESLib) |
+| `enc_iv_copy[N_BLOCK]` | 16 bytes | Scratch IV used for both encrypt and decrypt (copy of `aes_iv`, mutated by AESLib) |
 | `cleartext[]` | 2048 bytes | Plaintext workspace |
 | `ciphertext[]` | 4096 bytes | Base64-encoded ciphertext output workspace |
 | `phpKey` | `String` | PHP API key read from `/api.txt` |
 
-> AESLib mutates the IV in-place on every call. The `enc_iv_copy` / `enc_iv_from`
-> scratch buffers protect the original `aes_iv` by passing copies to each operation.
+> AESLib mutates the IV in-place on every call. The `enc_iv_copy`
+> scratch buffer protects the original `aes_iv` by passing a copy to each operation.
 
 ## Filesystem Inputs
 
@@ -50,7 +49,7 @@ High-level encrypt entry point.
 
 ### encrypt_to_ciphertext(msg, iv)
 Low-level AES-128-CBC encrypt + base64 encode.
-1. Calls `aesLibx.encrypt64()` → result written to global `ciphertext[]`.
+1. Calls `aeslib.encrypt64()` → result written to global `ciphertext[]`.
 2. Performs a round-trip decrypt to verify correctness (`"match"` logged to Serial on success).
 3. Returns the ciphertext length.
 
@@ -58,7 +57,7 @@ Low-level AES-128-CBC encrypt + base64 encode.
 
 ### decrypt_to_cleartext(msg, msgLen, iv, cleartext)
 AES-128-CBC decrypt + base64 decode.
-- Calls `aesLibx.decrypt64()` and null-terminates the result in `cleartext` by
+- Calls `aeslib.decrypt64()` and null-terminates the result in `cleartext` by
   replacing the first non-printable ASCII character (value < 32) with `'\0'`.
 - On ESP8266 builds, `ESP.getFreeHeap()` is called as a heap diagnostic
   (result discarded; guarded by `#ifdef ESP8266`).

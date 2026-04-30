@@ -1,6 +1,6 @@
 # ESP32 Client Documentation
 
-Last updated: 2026-04-22
+Last updated: 2026-04-30
 
 ## Overview
 This project is an ESP32-based IoT client that:
@@ -15,7 +15,7 @@ Main runtime code is in src/main.cpp.
 
 Detailed module docs:
 - docs/main.md
-- docs/login.md
+- docs/cryptography.md
 - docs/freeRtos.md
 - docs/socketClient.md
 - docs/rollBack.md
@@ -30,7 +30,7 @@ PlatformIO environment:
 - filesystem: littlefs
 - partitions: huge_app.csv
 - monitor speed: 115200
-- build flags: -Wall -Wextra -Werror
+- build flags: -Wall -Wextra
 - build type: debug
 
 Configured in platformio.ini.
@@ -39,8 +39,8 @@ Configured in platformio.ini.
 - src/main.cpp: App entry, Blynk handlers, widget refresh, OLED, watchdog logic.
 - src/socketClient.cpp: Sensor socket I/O and token parsing.
 - docs/socketClient.md: Detailed socket protocol, CRC/AES handling, and recovery behavior reference.
-- src/login.cpp: Wi-Fi credential decryption and login support.
-- docs/login.md: Detailed AES, LittleFS credential loading, and Wi-Fi decrypt flow reference.
+- src/cryptography.cpp: AES-128-CBC helpers and Wi-Fi credential decryption.
+- docs/cryptography.md: Detailed AES, LittleFS credential loading, and Wi-Fi decrypt flow reference.
 - src/freeRtos.cpp: RTOS task startup and scheduling support.
 - docs/freeRtos.md: Detailed FreeRTOS task, queue, mutex, and recovery flow reference.
 - src/misc.cpp: Shared utility helpers.
