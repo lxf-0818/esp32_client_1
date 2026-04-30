@@ -82,6 +82,8 @@ void refreshWidgets();
 void getBootTime(char *lastBook, char *strReason);
 int getSensorData(const String &sensorsConnected);
 void getSensorData4User(String input);
+int socketRecovery(char *IP, char *cmd2Send);
+void processSensorData(float tokens[5][5]);
 String performHttpGet(const char *url);
 int decryptWifiCredentials(char *auth, char *ssid, char *psw);
 int socketClient(char *espServer, char *command, bool updateErorrQue);
@@ -215,7 +217,7 @@ void refreshWidgets() // called every x seconds by SimpleTimer
 {
   char tmp[256];
   String sensorsConnected = performHttpGet(ipList);
-  //Serial.printf("sensor connrcted %s\n", sensorsConnected.c_str());
+  // Serial.printf("sensor connrcted %s\n", sensorsConnected.c_str());
   if (sensorsConnected.isEmpty())
   {
     sprintf(tmp, "Failed to fetch sensors from mySQL ");
@@ -235,7 +237,7 @@ void refreshWidgets() // called every x seconds by SimpleTimer
     Blynk.virtualWrite(V46, "\nStart:\n");
     for (const auto &pair : ipMap)
     {
-      String identifier = pair.first.c_str(); // remove the unique name identifier 
+      String identifier = pair.first.c_str(); // remove the unique name identifier
       identifier = identifier.substring(0, identifier.length() - 2);
       Serial.printf("Sensor: %s, IP: %s\n", identifier.c_str(), pair.second.c_str());
       sprintf(tmp, "\tSensor: %s, IP: %s\n", identifier.c_str(), pair.second.c_str());
@@ -525,10 +527,13 @@ int getSensorData(const String &sensorsConnected)
     Serial.printf("Sensor: %s, IP: %s\n", sensorName.c_str(), ip.c_str());
 #endif
 
-    if (socketClient((char *)ip.c_str(), (char *)"ALL", 1)) // read sensor data from connected device
+    int rc = socketClient((char *)ip.c_str(), (char *)"ALL", 1); // read sensor data from connected device
+    if (rc)
     {
-      Serial.println("socketClient() failed");
+      socketRecovery((char *)ip.c_str(), (char *)"ALL"); // current failed write to error recovery queue
+      failSocket++;
     }
+    processSensorData(tokens);
 
     sensorConnected = sensorConnected.substring(index2 + 1); // Move to the next device in string
 
@@ -852,7 +857,7 @@ void ping()
   for (const auto &pair : ipMap)
   {
     alive = dead = 0;
-    String identifier = pair.first.c_str();  //bug fixed!
+    String identifier = pair.first.c_str(); // bug fixed!
     identifier = identifier.substring(0, identifier.length() - 2);
     sprintf(tmp, "%s %s:\n", identifier.c_str(), pair.second.c_str());
     for (int j = 0; j < 4; j++)

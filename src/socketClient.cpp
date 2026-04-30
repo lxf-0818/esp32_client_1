@@ -92,6 +92,7 @@ void decrypt_to_cleartext(char *msg, uint16_t msgLen, byte iv[], char *cleartext
  */
 int socketClient(char *espServer, char *command, bool updateErrorQueue)
 {
+    (void)updateErrorQueue;
     extern float tokens[5][5];
     char str[500];
     bzero(str, 500);
@@ -100,13 +101,9 @@ int socketClient(char *espServer, char *command, bool updateErrorQueue)
 
     if (!client.connect(espServer, PORT))
     {
-        if (updateErrorQueue)
-        {                                       // don't update if in recovery mode ie last i/o failed
-            socketRecovery(espServer, command); // current failed write to error recovery queue
-            failSocket++;
-            Serial.printf(">>> failed to connect: %s\n", espServer);
-            lastMsg = "failed to connect " + String(espServer);
-        }
+        Serial.printf(">>> failed to connect: %s\n", espServer);
+        lastMsg = "failed to connect " + String(espServer);
+        client.stop();
         return 1;
     }
 
@@ -122,12 +119,6 @@ int socketClient(char *espServer, char *command, bool updateErrorQueue)
             Serial.println(">>> Client Timeout!");
             lastMsg = "Client Timeout " + String(espServer);
             client.stop();
-            delay(600);
-            if (updateErrorQueue)
-            {
-                socketRecovery(espServer, command); // write to error recovery queque
-                failSocket++;
-            }
             return 2;
         }
     }
@@ -135,7 +126,7 @@ int socketClient(char *espServer, char *command, bool updateErrorQueue)
     while (client.available())
         str[index++] = client.read(); // read sensor data from sever
     client.stop();
-//#define TRACE
+// #define TRACE
 #ifdef TRACE
     Serial.printf("conected to %s received %s\n", espServer, str);
 #endif
@@ -151,11 +142,7 @@ int socketClient(char *espServer, char *command, bool updateErrorQueue)
     if (calculatedCrc != crc.calc())
     {
         lastMsg = "CRC invalid " + String(espServer);
-        if (updateErrorQueue)
-        {
-            socketRecovery(espServer, command); // write to error recovery queque
-            failSocket++;
-        }
+        client.stop();
         return 3;
     }
     byte new_iv[16];
@@ -173,7 +160,7 @@ int socketClient(char *espServer, char *command, bool updateErrorQueue)
     }
 
 #ifdef SOCKET_AES
-    memcpy(enc_iv_copy, new_iv, sizeof(new_iv)); //since new iv is gen every i/o might not need?
+    memcpy(enc_iv_copy, new_iv, sizeof(new_iv)); // since new iv is gen every i/o might not need?
     decrypt_to_cleartext((char *)parsed.c_str(), parsed.length(), enc_iv_copy, cleartext);
     parsed = String(cleartext);
 #endif
@@ -196,8 +183,6 @@ int socketClient(char *espServer, char *command, bool updateErrorQueue)
 #ifdef DEBUG_TOKENS
     printTokens(tokens);
 #endif
-    if (updateErrorQueue)
-        processSensorData(tokens);
 
     return 0;
 }
@@ -211,7 +196,7 @@ int socketClient(char *espServer, char *command, bool updateErrorQueue)
  *
  * @param tokens A 2D array of sensor data, where each row represents a sensor's data.
  *               The first element in each row is the sensor code (as a float).
-  * @note A previous bug related to "Stack canary" exceptions was resolved by increasing the stack size.
+ * @note A previous bug related to "Stack canary" exceptions was resolved by increasing the stack size.
  */
 void processSensorData(float tokens[5][5])
 {
