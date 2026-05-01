@@ -130,7 +130,6 @@ const char *deleteAll = "http://192.168.1.252/deleteALL.php";
 const char *ipList = "http://192.168.1.252/ip.php";
 const char *ipDelete = "http://192.168.1.252/deleteIP.php";
 const char *esp_data = "http://192.168.1.252/esp-data.php";
-int myfind(String value);
 
 /**
  * @brief Sets up the initial configuration for the ESP32 client application.
@@ -170,7 +169,6 @@ void setup()
   initRTOS();
   lwdtFeed();
   lwdTicker.attach_ms(LWD_TIMEOUT, lwdtcb); // attach lwdt callback routine to Ticker object
-  // Blynk.setProperty(V49, "color", "#0fc212ff");
 }
 /**
  * @brief Main runtime loop for the ESP32 client.
@@ -540,6 +538,8 @@ int getSensorData(const String &sensorsConnected)
     int rc = socketClient((char *)ip.c_str(), (char *)"ALL", 1); // read sensor data from connected device
     if (rc)
     {
+      //Moved socketRecovery logic here hence the last parameter(updateErorrQue) is not use, in socketClient 
+      //NOTE: socketClient is over-loaded by removing the last parm causes compile time errors Will fixed 1 day!
       socketRecovery((char *)ip.c_str(), (char *)"ALL"); // current failed write to error recovery queue
       failSocket++;
     }
