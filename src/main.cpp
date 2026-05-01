@@ -506,6 +506,8 @@ String performHttpGet(const char *url)
  */
 int getSensorData(const String &sensorsConnected)
 {
+// #define DEBUG_LIST
+// #define DEBUG_1
 
   String rows = sensorsConnected.substring(0, sensorsConnected.indexOf("|"));
   int numberOfRows = atoi(rows.c_str());
@@ -517,7 +519,7 @@ int getSensorData(const String &sensorsConnected)
   String sensorConnected = sensorsConnected.substring(sensorsConnected.indexOf("|") + 1,
                                                       sensorsConnected.lastIndexOf("|"));
 
-  ipMap.clear(); // if sensor was removed (failed to connect) need to clear!!!!!
+  ipMap.clear(); // if sensor was removed (failed to connect) need to clear
   for (int i = 0; i < numberOfRows; i++)
   {
     int index = sensorConnected.indexOf(":");
@@ -525,11 +527,10 @@ int getSensorData(const String &sensorsConnected)
     int index2 = sensorConnected.indexOf("|");
     String ip = sensorConnected.substring(index + 1, index2);
     String sensorName = sensorConnected.substring(index1 + 1, index);
-
-    sensorName = sensorName + "_" + i; // create unique name to fix the bug below!
-
+    // create unique name ,  when multpule boards of have the same sensor name
+    sensorName = sensorName + "_" + i;  
     // update map with IP address , used downstream for connecting to server from terminal(V48)
-    ipMap[sensorName.c_str()] = ip.c_str(); // bug when multpule boards of the same sensor name
+    ipMap[sensorName.c_str()] = ip.c_str(); 
 // #define DEBUG_1
 #ifdef DEBUG_1
     Serial.printf("Sensor: %s, IP: %s\n", sensorName.c_str(), ip.c_str());
