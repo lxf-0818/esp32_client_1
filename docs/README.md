@@ -69,8 +69,12 @@ Important handlers in src/main.cpp:
 - list: show valid commands
 - reboot: save queue status and reboot
 - up: print uptime
-- adc | bme | bmx: query selected sensor type and print latest value
-- ds1: query DS18B20 temperature data
+- adc: query ADS1115 voltage reading
+- bme: query BME280 temperature/humidity reading
+- bmx: query BMP390 temperature reading
+- bmp: query BMP280 temperature reading
+- sht: query SHT35 temperature/humidity reading
+- ds1: query DS18B20 temperature reading
 - refr: force widget refresh and reset counters
 - ping: test TCP and HTTP reachability metrics
 
