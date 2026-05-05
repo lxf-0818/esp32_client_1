@@ -39,6 +39,8 @@ Supported terminal commands:
 - `adc` — fetch ADS1115 voltage reading
 - `bme` — fetch BME280 temperature reading
 - `bmx` — fetch BMP390 temperature reading
+- `bmp` — fetch BMP280 temperature reading
+- `sht` — fetch SHT35 temperature/humidity reading
 - `ds1` — fetch DS18B20 temperature reading
 - `refr` — force widget refresh and reset fail/recover/retry counters
 
@@ -48,7 +50,7 @@ Unrecognised commands return an error message to the terminal.
 - `performHttpGet(url)` — HTTP GET wrapper, returns response string or empty on failure
 - `getSensorData(sensorsConnected)` — parses `"count|row,sensor:ip|..."` string into `ipMap`, socket-polls each device
 - `getSensorData4User(input)` — resolves matching sensor IPs, polls each node with `ALL`, filters token rows by sensor tag, writes formatted values to terminal pin V49
-- `upDateWidget(sensor, tokens[])` — writes sensor values to Blynk virtual pins; supports BME280, BMP390, SHT35, ADS1115 (DS18B20 is not handled — no matching branch exists)
+- `upDateWidget(sensor, tokens[])` — writes sensor values to Blynk virtual pins; supports BME280, BMP390, SHT35, ADS1115 (DS18B20 and BMP280 are not handled — no matching branch exists)
 - `getIP(sensorName)` — case-insensitive substring lookup that returns all matching IPs as a `|`-delimited string with trailing `|` (e.g. `"bme"` matches `"BME280"`)
 - `isServerConnected(serverIP, port)` — TCP connect/disconnect reachability check (default port 8888)
 - `printUptime()` — formats and writes uptime to Blynk terminal (V49)
@@ -58,7 +60,7 @@ Unrecognised commands return an error message to the terminal.
 - `ping()` — TCP-pings every entry in `ipMap` 4 times and HTTP-pings `ipList` 4 times; writes pass/dead counts and elapsed time to V49
 
 ## getSensorData4User Flow
-Used by terminal commands `adc`, `bme`, `bmx`, and `ds1`.
+Used by terminal commands `adc`, `bme`, `bmx`, `bmp`, `sht`, and `ds1`.
 
 1. Reads sensor prefix from the first 3 characters of the user input.
 2. Calls `getIP(prefix)` and receives all matching IPs as a `|`-delimited list.
@@ -67,12 +69,12 @@ Used by terminal commands `adc`, `bme`, `bmx`, and `ds1`.
 5. Formats result text and writes one line per matched device to V49.
 
 Tag mapping used by the function:
-- `bmx` -> `77`
-- `bme` -> `76`
-- `bmp` -> `58`
-- `sht` -> `44`
-- `adc` -> `48`
-- `ds1` -> `28`
+- `bmx` -> `77` (BMP390)
+- `bme` -> `76` (BME280)
+- `bmp` -> `58` (BMP280, chip ID 0x58)
+- `sht` -> `44` (SHT35)
+- `adc` -> `48` (ADS1115)
+- `ds1` -> `28` (DS18B20)
 
 Output behavior:
 - Default output label is `Temp` with unit `F`.

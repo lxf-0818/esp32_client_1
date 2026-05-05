@@ -411,8 +411,11 @@ void lwdtFeed(void)
  *               The specific indices used depend on the sensor type.
  *
  * @note The function supports the following sensors:
- *       - "BME280" or "BMP390": Updates temperature (V4). If "BME280" or "SHT35", also updates humidity (V6).
- *       - "ADS1115": Updates a gauge (GAUGE_HOUSE) and another virtual pin (V43) based on calculations.
+ *       - "BME280" or "BMP390" or "SHT35": Updates temperature (V4, tokens[1]).
+ *         "BME280" and "SHT35" additionally update humidity (V6, tokens[2]).
+ *       - "ADS1115": Updates Jackery voltage gauge (V2/GAUGE_HOUSE, tokens[1] × tokens[3])
+ *         and ESP32 supply voltage (V43, tokens[2]).
+ *       - "BMP280" and "DS18B20" are not handled; the function returns silently.
  *
  * @note Debugging information can be enabled by defining DEBUG_W, which prints sensor data to the Serial monitor.
  */
@@ -506,8 +509,8 @@ String performHttpGet(const char *url)
  */
 int getSensorData(const String &sensorsConnected)
 {
-// #define DEBUG_LIST
-// #define DEBUG_1
+  // #define DEBUG_LIST
+  // #define DEBUG_1
 
   String rows = sensorsConnected.substring(0, sensorsConnected.indexOf("|"));
   int numberOfRows = atoi(rows.c_str());
@@ -528,9 +531,9 @@ int getSensorData(const String &sensorsConnected)
     String ip = sensorConnected.substring(index + 1, index2);
     String sensorName = sensorConnected.substring(index1 + 1, index);
     // create unique name ,  when multpule boards of have the same sensor name
-    sensorName = sensorName + "_" + i;  
+    sensorName = sensorName + "_" + i;
     // update map with IP address , used downstream for connecting to server from terminal(V48)
-    ipMap[sensorName.c_str()] = ip.c_str(); 
+    ipMap[sensorName.c_str()] = ip.c_str();
 // #define DEBUG_1
 #ifdef DEBUG_1
     Serial.printf("Sensor: %s, IP: %s\n", sensorName.c_str(), ip.c_str());
@@ -539,8 +542,8 @@ int getSensorData(const String &sensorsConnected)
     int rc = socketClient((char *)ip.c_str(), (char *)"ALL", 1); // read sensor data from connected device
     if (rc)
     {
-      //Moved socketRecovery logic here hence the last parameter(updateErorrQue) is not use, in socketClient 
-      //NOTE: socketClient is over-loaded by removing the last parm causes compile time errors Will fixed 1 day!
+      // Moved socketRecovery logic here hence the last parameter(updateErorrQue) is not use, in socketClient
+      // NOTE: socketClient is over-loaded by removing the last parm causes compile time errors Will fixed 1 day!
       socketRecovery((char *)ip.c_str(), (char *)"ALL"); // current failed write to error recovery queue
       failSocket++;
     }
@@ -570,6 +573,8 @@ int getSensorData(const String &sensorsConnected)
  * - "adc":   fetches ADS1115 voltage reading for matching nodes via `getSensorData4User()`.
  * - "bme":   fetches BME280 temperature reading for matching nodes via `getSensorData4User()`.
  * - "bmx":   fetches BMP390 temperature reading for matching nodes via `getSensorData4User()`.
+ * - "bmp":   fetches BMP280 temperature reading for matching nodes via `getSensorData4User()`.
+ * - "sht":   fetches SHT35 temperature/humidity reading for matching nodes via `getSensorData4User()`.
  * - "ds1":   fetches DS18B20 temperature reading for matching nodes via `getSensorData4User()`.
  * - "refr":  clears `lastSensorsConnected`, calls `refreshWidgets()`, and resets
  *            fail/recovered/retry counters.
@@ -579,7 +584,7 @@ int getSensorData(const String &sensorsConnected)
  */
 BLYNK_WRITE(V49)
 {
-  String validCommand[] = {"list", "reboot", "ping", "up", "adc", "bme", "bmx", "ds1"};
+  String validCommand[] = {"list", "reboot", "ping", "up", "adc", "bme", "bmx", "ds1", "sht", "bmp"};
   char tmp[512];
   int numberOfElements = sizeof(validCommand) / sizeof(validCommand[0]);
 
@@ -611,7 +616,9 @@ BLYNK_WRITE(V49)
   else if (input.startsWith("up"))
     printUptime();
 
-  else if (input.startsWith("bmx") || input.startsWith("bme") || input.startsWith("adc") || input.startsWith("ds1"))
+  else if (input.startsWith("bmx") || input.startsWith("bme") || input.startsWith("sht") 
+                                   || input.startsWith("adc") || input.startsWith("ds1")
+                                   || input.startsWith("bmp"))
   {
     getSensorData4User(input);
   }
