@@ -183,7 +183,7 @@ int socketClient(char *espServer, char *command, bool updateErrorQueue)
 
         token = strtok(NULL, ",");
     }
-// #define DEBUG_TOKENS
+//#define DEBUG_TOKENS
 #ifdef DEBUG_TOKENS
     printTokens(tokens);
 #endif
