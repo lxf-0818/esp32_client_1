@@ -336,15 +336,22 @@ BLYNK_WRITE(V18)
 BLYNK_WRITE(BLINK_TST)
 {
   timer.disable(timerID1);
+  // this needs to match the same order of the blynk widget BLINK_TST V9
+  String sensor[] = {"ADC", "BME", "SHT", "BMP", "DS1", "ALL"};
+  int index = param.asInt();
   char *str = nullptr;
   // Iterate through the map
   for (const auto &pair : ipMap)
   {
-    Serial.printf("Key: %s, Value: %s\n", pair.first.c_str(), pair.second.c_str());
-    str = socketClient((char *)pair.second.c_str(), (char *)"BLK");
-    Serial.printf("blk_tst %s \n", str);
-    free(str);
+    if (sensor[index] == "ALL" || sensor[index] == pair.first.substr(0, 3).c_str())
+    {
+      str = socketClient((char *)pair.second.c_str(), (char *)"BLK");
+      Serial.printf("blk_tst %s \n", str);
+      free(str);
+      lwdtFeed(); // hack here to avoid time out
+    }
   }
+
   timer.enable(timerID1);
 
   // int index = param.asInt();
@@ -510,8 +517,6 @@ String performHttpGet(const char *url)
 int getSensorData(const String &sensorsConnected)
 {
   // #define DEBUG_LIST
-  // #define DEBUG_1
-
   String rows = sensorsConnected.substring(0, sensorsConnected.indexOf("|"));
   int numberOfRows = atoi(rows.c_str());
 
@@ -521,7 +526,6 @@ int getSensorData(const String &sensorsConnected)
 
   String sensorConnected = sensorsConnected.substring(sensorsConnected.indexOf("|") + 1,
                                                       sensorsConnected.lastIndexOf("|"));
-
   ipMap.clear(); // if sensor was removed (failed to connect) need to clear
   for (int i = 0; i < numberOfRows; i++)
   {
@@ -534,8 +538,7 @@ int getSensorData(const String &sensorsConnected)
     sensorName = sensorName + "_" + i;
     // update map with IP address , used downstream for connecting to server from terminal(V48)
     ipMap[sensorName.c_str()] = ip.c_str();
-// #define DEBUG_1
-#ifdef DEBUG_1
+#ifdef DEBUG_LIST
     Serial.printf("Sensor: %s, IP: %s\n", sensorName.c_str(), ip.c_str());
 #endif
 
@@ -616,9 +619,7 @@ BLYNK_WRITE(V49)
   else if (input.startsWith("up"))
     printUptime();
 
-  else if (input.startsWith("bmx") || input.startsWith("bme") || input.startsWith("sht") 
-                                   || input.startsWith("adc") || input.startsWith("ds1")
-                                   || input.startsWith("bmp"))
+  else if (input.startsWith("bmx") || input.startsWith("bme") || input.startsWith("sht") || input.startsWith("adc") || input.startsWith("ds1") || input.startsWith("bmp"))
   {
     getSensorData4User(input);
   }
@@ -861,9 +862,7 @@ void getSensorData4User(String input)
 
 void ping()
 {
-  int dead, alive;
-  unsigned long start = millis();
-  char tmp[100], tmp1[100];
+  
 
   // Iterate over all registered sensor-IP pairs and perform a connectivity check.
   // Each device is pinged 4 times via TCP connect/disconnect (isServerConnected).
@@ -872,12 +871,14 @@ void ping()
   // inside a non-BLYNK_WRITE context had no effect (known platform limitation).
   // The `_i` index suffix appended to ipMap keys by getSensorData() is stripped before
   // display so the user-facing sensor name is clean (e.g. "BME280" not "BME280_0").
+  int dead, alive;
+  unsigned long start;
+  char line[20], line2[50];
   for (const auto &pair : ipMap)
   {
     alive = dead = 0;
-    String identifier = pair.first.c_str(); // bug fixed!
-    identifier = identifier.substring(0, identifier.length() - 2);
-    sprintf(tmp, "%s %s:\n", identifier.c_str(), pair.second.c_str());
+    start = millis();
+    sprintf(line, "%s %s:\n", pair.first.substr(0, 3).c_str(), pair.second.c_str());
     for (int j = 0; j < 4; j++)
     {
       if (isServerConnected(pair.second.c_str()))
@@ -885,14 +886,12 @@ void ping()
       else
         dead++;
     }
-
-    sprintf(tmp1, "\tpass %d dead %d  time: %lu ms\n", alive, dead, millis() - start);
-    strcat(tmp, tmp1);
-    Blynk.virtualWrite(V49, tmp);
+    sprintf(line2, "\tpass %d dead %d  time: %lu ms\n", alive, dead, millis() - start);
+    strcat(line, line2);
+    Blynk.virtualWrite(V49, line);
   }
   // ping http
-  sprintf(tmp, "%s\n", ipList);
-
+  snprintf(line, strlen(ipList),"%s\n", ipList);  // iplist is not fully displayed after   192.168.1.252/ip.php
   alive = dead = 0;
   start = millis();
   for (int j = 0; j < 4; j++)
@@ -903,8 +902,7 @@ void ping()
     else
       alive++;
   }
-  sprintf(tmp1, "\t%d pass %d dead time: %lu ms\n", alive, dead, millis() - start);
-  strcat(tmp, tmp1);
-  Blynk.virtualWrite(V49, tmp);
+  sprintf(line2, "\n\t pass %d dead %d time: %lu ms\n", alive, dead, millis() - start);
+  strcat(line, line2);
+  Blynk.virtualWrite(V49, line);
 }
-//

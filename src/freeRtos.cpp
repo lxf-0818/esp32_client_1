@@ -37,12 +37,10 @@
  *   - `initRTOS`: Initializes FreeRTOS tasks, queues, and mutexes.
  *   - `socketRecovery`: Adds a failed socket operation to the recovery queue.
  *   - `taskSocketRecov`: Processes socket recovery tasks from the queue.
- *   - `taskSQL_HTTP`: Processes HTTP POST requests from the queue.
+ *   - `taskSQL_HTTP`: Processes HTTP POST requests from the queue to a PHP endpoint.
  *   - `setupHTTP_request`: Prepares and enqueues an HTTP POST request.
  *   - `taskBlink`: Toggles the built-in LED at regular intervals.
  *   - `queStat`: Checks the status of queues and ensures all tasks are complete.
- *   - `deleteRow`: Deletes a row from the database using a PHP script.
- *   - `socketClient`: Sends a command to a server via a socket connection.
  *
  * - **Structs**:
  *   - `socket_t`: Represents a socket recovery task with a function pointer, IP address, and command.
@@ -93,12 +91,18 @@ void taskSocketRecov(void *pvParameters);
 void taskSQL_HTTP(void *pvParameters);
 void setupHTTP_request(String sensorName, float tokens[]);
 void taskBlink(void *pvParameters);
-void taskPing(void *pvParameters);
 
 bool queStat();
 int deleteRow(String phpScript);
 int socketClient(char *espServer, char *command, bool updateErrorQueue);
 // Struct Definitions
+/**
+ * @struct socket_t
+ * @brief Structure to hold socket recovery task parameters.
+ * @var fun_ptr Function pointer to the recovery function (typically `socketClient`).
+ * @var ipAddr  Null-terminated IP address string (max 20 chars).
+ * @var cmd     Null-terminated command string (max 20 chars).
+ */
 typedef struct
 {
     int (*fun_ptr)(char *, char *, bool);
@@ -107,6 +111,13 @@ typedef struct
 } socket_t;
 socket_t socketQue;
 
+/**
+ * @struct message_t
+ * @brief Structure to hold an HTTP POST message for the PHP back-end.
+ * @var device  Device name/identifier (max 10 chars).
+ * @var line    Formatted HTTP POST data payload (max MAX_LINE_LENGTH chars).
+ * @var key     Numeric key or row ID associated with the message.
+ */
 typedef struct
 {
     char device[10];
@@ -129,6 +140,7 @@ message_t message;
  *   - `taskBlink`: Handles LED blinking functionality.
  *   - `taskSQL_HTTP`: Manages HTTP-related operations.
  *   - `taskSocketRecov`: Handles socket recovery operations.
+ *   
  * - FreeRTOS Scheduler: Once the above tasks are created, the FreeRTOS scheduler automatically manages their
  *                       execution based on their priorities and delays (vTaskDelay).
  * - Creates two mutexes:
@@ -225,33 +237,29 @@ int socketRecovery(char *IP, char *cmd2Send)
 }
 
 /**
- * @brief Task to log sensor data to a MySQL database using HTTP POST requests.
+ * @brief Task to POST sensor data to a PHP endpoint and handle delivery failures.
  *
- * This FreeRTOS task is designed to run on core 0 to handle HTTP operations,
- * allowing core 1 to handle real-time operations. The task retrieves messages from a queue,
- * sends them to a server via HTTP POST, and handles errors by attempting
- * to delete the corresponding row in the database if the POST fails.
+ * This FreeRTOS task runs on core 0 to handle HTTP POST operations asynchronously.
+ * It retrieves messages from a queue, sends them to `post-esp-data.php` via HTTP POST,
+ * and handles failures by attempting to delete stale rows via `delete.php`. Successful
+ * posts and recovery attempts are logged to track queue health.
  *
  * @param pvParameters Pointer to the delay time (in milliseconds) passed
  *                     as a parameter to the task.
  *
  * @details
- * - The task uses a queue (`QueHTTP_Handle`) to receive messages containing
- *   data to be posted to the server.
- * - A mutex (`xMutex_http`) is used to ensure thread-safe HTTP operations.
- * - If the HTTP POST request succeeds, the task increments the success counter.
- * - If the HTTP POST request fails, the task attempts to delete the corresponding
- *   row in the database by sending a DELETE request to a PHP script. It retries
- *   the deletion up to 5 times with a delay between attempts.
- * - If the deletion is successful, the task re-queues the message for retry.
- * - The task logs various statistics, including the number of successful posts,
- *   failed posts, and recovered messages.
+ * - Retrieves messages from the `QueHTTP_Handle` queue (blocking indefinitely).
+ * - Uses `xMutex_http` to synchronize HTTP operations.
+ * - POSTs message to `post-esp-data.php` endpoint at 192.168.1.252.
+ * - On success: increments `passPost` counter.
+ * - On failure: attempts to clean up via `deleteRow()` (retry up to MAX_RETRY times),
+ *   re-queues message, increments `failPost` and `recovered` counters.
+ * - Logs diagnostics to Serial (response codes, message content, counters).
  *
  * @note
- * - The task uses non-blocking delays (`vTaskDelay`) to avoid affecting other tasks.
- * - The HTTP client (`HTTPClient`) and WiFi client (`WiFiClient`) are used for
- *   communication with the php server.
- * - The server URL and PHP script paths are hardcoded in the task.
+ * - The task uses non-blocking delays (`vTaskDelay`) to avoid blocking other tasks.
+ * - The HTTP endpoint URL is hardcoded: `http://192.168.1.252/post-esp-data.php`
+ * - POST payload is `application/x-www-form-urlencoded` format.
  *
  *
  */
