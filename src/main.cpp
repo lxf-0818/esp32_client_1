@@ -166,9 +166,10 @@ void setup()
 
   // Serial.println("Turned off timer");
   timerID1 = timer.setInterval(1000L * 20, refreshWidgets); //
-  initRTOS();
   lwdtFeed();
   lwdTicker.attach_ms(LWD_TIMEOUT, lwdtcb); // attach lwdt callback routine to Ticker object
+  initRTOS();
+  refreshWidgets();
 }
 /**
  * @brief Main runtime loop for the ESP32 client.
@@ -302,7 +303,6 @@ BLYNK_CONNECTED()
   }
   else
   {
-    refreshWidgets();
     passSocket = payload.toInt();
     Blynk.virtualWrite(V7, passSocket);
 
@@ -318,7 +318,7 @@ BLYNK_CONNECTED()
  */
 BLYNK_WRITE(V18)
 {
-  String payload = performHttpGet(ipDelete);
+  String payload = performHttpGet(deleteAll);
   if (payload.isEmpty())
   {
     Serial.println("Failed to fetch ip for connected devices or no devices connected");
@@ -335,33 +335,27 @@ BLYNK_WRITE(V18)
  */
 BLYNK_WRITE(BLINK_TST)
 {
-  timer.disable(timerID1);
-  // this needs to match the same order of the blynk widget BLINK_TST V9
+  timer.disable(timerID1); // pause periodic refresh to prevent socket contention during test
+
+  // Labels must match the Blynk widget button order for virtual pin BLINK_TST (V9):
+  // index 0=ADC, 1=BME, 2=SHT, 3=BMP, 4=DS1, 5=ALL
   String sensor[] = {"ADC", "BME", "SHT", "BMP", "DS1", "ALL"};
-  int index = param.asInt();
+  int index = param.asInt(); // widget sends the selected button index (0-based)
   char *str = nullptr;
-  // Iterate through the map
+
+  // Walk every registered sensor; send "BLK" to those matching the selected type (or ALL)
   for (const auto &pair : ipMap)
   {
+    // ipMap keys are "<SENSOR>_<n>"; compare only the first 3 chars against the selection
     if (sensor[index] == "ALL" || sensor[index] == pair.first.substr(0, 3).c_str())
     {
-      str = socketClient((char *)pair.second.c_str(), (char *)"BLK");
+      str = socketClient((char *)pair.second.c_str(), (char *)"BLK"); // returns heap-allocated C-string
       Serial.printf("blk_tst %s \n", str);
-      free(str);
-      lwdtFeed(); // hack here to avoid time out
+      free(str);  // release heap buffer returned by socketClient
+      lwdtFeed(); // reset watchdog; BLK round-trip can exceed LWD_TIMEOUT on slow nodes
     }
   }
-
-  timer.enable(timerID1);
-
-  // int index = param.asInt();
-  //  char *str = socketClient((char *)ipAddr[index], (char *)"TST");
-  //  String foo = String(str);
-  //  index = foo.indexOf(":");
-  //  skip crc
-  //  Blynk.virtualWrite(V12, (foo.substring(index + 1)));
-  //  free(str);
-  //  timer.enable(timerID1);
+  timer.enable(timerID1); // restore periodic widget refresh
 }
 /**
  * @brief ISR (Interrupt Service Routine) for handling the lightweight watchdog timer (LWD).
@@ -516,6 +510,15 @@ String performHttpGet(const char *url)
  */
 int getSensorData(const String &sensorsConnected)
 {
+  const std::map<String, String> locMap =
+      {
+          {"192.168.1.3", "Master Bedroom"},
+          {"192.168.1.6", "Guest Bedroom"},
+          {"192.168.1.4", "Mud Room"},
+          {"192.168.1.10", "Laundry Room"},
+          {"192.168.1.13", "Main Room"},
+
+        };
   // #define DEBUG_LIST
   String rows = sensorsConnected.substring(0, sensorsConnected.indexOf("|"));
   int numberOfRows = atoi(rows.c_str());
@@ -534,24 +537,22 @@ int getSensorData(const String &sensorsConnected)
     int index2 = sensorConnected.indexOf("|");
     String ip = sensorConnected.substring(index + 1, index2);
     String sensorName = sensorConnected.substring(index1 + 1, index);
-    // create unique name ,  when multpule boards of have the same sensor name
-    sensorName = sensorName + "_" + i;
-    // update map with IP address , used downstream for connecting to server from terminal(V48)
+
+    sensorName = sensorName + "_" + i; // create unique key ,  when multpule esp8266 have the same sensor
+    // update map with IP address , used downstream for connecting to server from terminal(V49) commands
     ipMap[sensorName.c_str()] = ip.c_str();
 #ifdef DEBUG_LIST
     Serial.printf("Sensor: %s, IP: %s\n", sensorName.c_str(), ip.c_str());
 #endif
-
+    // NOTE: socketClient is over-loaded function by removing the last parm causes compile time errors Wwll fixed 1 day!
     int rc = socketClient((char *)ip.c_str(), (char *)"ALL", 1); // read sensor data from connected device
     if (rc)
     {
-      // Moved socketRecovery logic here hence the last parameter(updateErorrQue) is not use, in socketClient
-      // NOTE: socketClient is over-loaded by removing the last parm causes compile time errors Will fixed 1 day!
+      // Moved socketRecovery logic here  the last parameter(updateErorrQue) is not use, in socketClient
       socketRecovery((char *)ip.c_str(), (char *)"ALL"); // current failed write to error recovery queue
       failSocket++;
     }
     processSensorData(tokens);
-
     sensorConnected = sensorConnected.substring(index2 + 1); // Move to the next device in string
 
 #ifdef DEBUG
@@ -784,7 +785,7 @@ String getIP(String sensorName)
  */
 void getSensorData4User(String input)
 {
-  const std::map<std::string, int> tagMap =
+  const std::map<String, int> tagMap =
       {
           {"bmx", 77},
           {"bme", 76},
@@ -862,7 +863,6 @@ void getSensorData4User(String input)
 
 void ping()
 {
-  
 
   // Iterate over all registered sensor-IP pairs and perform a connectivity check.
   // Each device is pinged 4 times via TCP connect/disconnect (isServerConnected).
@@ -891,7 +891,7 @@ void ping()
     Blynk.virtualWrite(V49, line);
   }
   // ping http
-  snprintf(line, strlen(ipList),"%s\n", ipList);  // iplist is not fully displayed after   192.168.1.252/ip.php
+  snprintf(line, strlen(ipList), "%s\n", ipList); // iplist is not fully displayed after   192.168.1.252/ip.php
   alive = dead = 0;
   start = millis();
   for (int j = 0; j < 4; j++)

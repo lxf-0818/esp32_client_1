@@ -174,7 +174,8 @@ void initRTOS()
 
     xTaskCreatePinnedToCore(taskBlink, "Task Blink", TASK_STACK_SIZE, (uint32_t *)&blink_delay, 1, &blink_task_handle, 0);
     xTaskCreatePinnedToCore(taskSQL_HTTP, "Task HTTP", TASK_STACK_SIZE * 2, (uint32_t *)&http_delay, 2, &http_task_handle, 0);
-    xTaskCreatePinnedToCore(taskSocketRecov, "Task Sockets", TASK_STACK_SIZE * 2, (uint32_t *)&socket_delay, 3, &socket_task_handle, 0);
+    // moving the following task to core 0 cause task to trigger internal WD timer ??
+    xTaskCreatePinnedToCore(taskSocketRecov, "Task Sockets", TASK_STACK_SIZE * 2, (uint32_t *)&socket_delay, 3, &socket_task_handle, 1);
 
     if (blink_task_handle == NULL || socket_task_handle == NULL || http_task_handle == NULL)
     {
@@ -229,7 +230,7 @@ int socketRecovery(char *IP, char *cmd2Send)
             String phpScript = "http://192.168.1.252/deleteIP.php?key=" + (String)IP;
             deleteRow(phpScript); // delete
             // Blynk.logEvent("");
-            xQueueReset(QueSocket_Handle);
+            xQueueReset(QueSocket_Handle); // clear stale etries in que since its full
         }
         return ret;
     }
@@ -348,6 +349,8 @@ void taskSQL_HTTP(void *pvParameters)
  */
 void taskSocketRecov(void *pvParameters)
 {
+    // moving the following task to core 0 cause task to trigger internal WD timer ??
+
     socket_t socketQue;
     uint32_t socket_delay = *((uint32_t *)pvParameters);
     const TickType_t xDelay = socket_delay / portTICK_PERIOD_MS;
