@@ -89,6 +89,7 @@ void flashSSD();
 bool checkSSD();
 
 void refreshWidgets();
+void resetStats();
 void getBootTime(char *lastBook, char *strReason);
 int getSensorData(const String &sensorsConnected);
 void getSensorData4User(String input);
@@ -108,6 +109,7 @@ void printUptime();
 String getIP(String sensorName);
 void printTokens(float tokens[5][5]);
 void ping();
+String ip2room(String ip);
 
 std::map<std::string, std::string> ipMap;
 const uint16_t port = 8888;
@@ -182,12 +184,6 @@ void loop()
   lwdtFeed();
   Blynk.run();
   timer.run();
-
-  // // Example: Trigger the interrupt manually for testing
-  // if (millis() % 10000 == 0) // Every 10 seconds
-  // {
-  //   generateInterrupt();
-  // }
 }
 
 /**
@@ -224,19 +220,9 @@ void flashSSD()
  * */
 void refreshWidgets() // called every x seconds by SimpleTimer
 {
-  const std::map<String, String> locMap =
-      {
-          {"192.168.1.3", "Master Bedroom"},
-          {"192.168.1.6", "Guest Bedroom"},
-          {"192.168.1.4", "Mud Room"},
-          {"192.168.1.10", "Laundry Room"},
-          {"192.168.1.13", "Main Room"},
-
-      };
-
+  String location;
   char tmp[256];
   String sensorsConnected = performHttpGet(ipList);
-  // Serial.printf("sensor connrcted %s\n", sensorsConnected.c_str());
   if (sensorsConnected.isEmpty())
   {
     sprintf(tmp, "Failed to fetch sensors from mySQL ");
@@ -249,35 +235,37 @@ void refreshWidgets() // called every x seconds by SimpleTimer
     Blynk.virtualWrite(V39, tmp);
     return;
   }
-  String location;
   if (lastSensorsConnected != sensorsConnected) // only update Blynk terminal when IP list changes
   {
+
     lastSensorsConnected = sensorsConnected;
     Blynk.virtualWrite(V46, "\nStart:\n");
     for (const auto &pair : ipMap)
     {
-      auto it = locMap.find(pair.second.c_str());
-      if (it != locMap.end())
-        location = it->second;
-      else
-        location = "not found";
 
-      String sensor = pair.first.c_str(); // remove the unique key for sensor
+      location = ip2room(pair.second.c_str());
+
+      // ipMap keys are stored as "<SENSOR>_<n>"; strip "_<n>" before display.
+      String sensor = pair.first.c_str();
       sensor = sensor.substring(0, sensor.length() - 2);
 
-    //  Serial.printf("Sensor: %s -> %s\n", sensor.c_str(), location.c_str());
+      // Emit one line per sensor with resolved location.
+      //  Serial.printf("Sensor: %s -> %s\n", sensor.c_str(), location.c_str());
       sprintf(tmp, "\tSensor: %s -> %s\n", sensor.c_str(), location.c_str());
       Blynk.virtualWrite(V49, tmp);
     }
     sprintf(tmp, "\n\tenter 'list' for valid commands\n");
     Blynk.virtualWrite(V49, tmp);
   }
-
+}
+void resetStats()
+{
   Blynk.virtualWrite(V7, passSocket);
   Blynk.virtualWrite(V20, failSocket);
   Blynk.virtualWrite(V19, recoveredSocket);
   Blynk.virtualWrite(V34, retry);
   Blynk.virtualWrite(V47, lastMsg);
+  Blynk.virtualWrite(V49, "reset complete\n");
 }
 /**
  * @brief Callback function that is triggered when the device connects to the Blynk server.
@@ -589,17 +577,19 @@ int getSensorData(const String &sensorsConnected)
  * - "bmp":   fetches BMP280 temperature reading for matching nodes via `getSensorData4User()`.
  * - "sht":   fetches SHT35 temperature/humidity reading for matching nodes via `getSensorData4User()`.
  * - "ds1":   fetches DS18B20 temperature reading for matching nodes via `getSensorData4User()`.
- * - "refr":  clears `lastSensorsConnected`, calls `refreshWidgets()`, and resets
- *            fail/recovered/retry counters.
+ * - "refr":  clears `lastSensorsConnected`, calls `refreshWidgets()`
+ *   "reset": resets  fail/recovered/retry counters.
  * Unrecognised input writes an error message to V49.
  *
  * @param param The parameter object containing the string sent to the terminal widget.
  */
 BLYNK_WRITE(V49)
 {
-  String validCommand[] = {"list", "reboot", "ping", "up", "adc", "bme", "bmx", "ds1", "sht", "bmp"};
+  String validCommand[] = {"list", "reboot", "ping", "up", "reset", "refr", "adc",
+                           "adc", "bme", "bmx", "ds1", "sht", "bmp"};
   char tmp[512];
-  int numberOfElements = sizeof(validCommand) / sizeof(validCommand[0]);
+  int indexSelected, numberOfElements;
+  bool found = false;
 
   String input = param.asStr(); // Read the input string from the terminal
   if (input.isEmpty())
@@ -608,46 +598,51 @@ BLYNK_WRITE(V49)
     return;
   }
   input.toLowerCase();
+  numberOfElements = sizeof(validCommand) / sizeof(validCommand[0]);
 
-  Serial.printf("Received from terminal: %s\n", input.c_str());
-
-  if (input.startsWith("list"))
+  for (indexSelected = 0; indexSelected < numberOfElements; indexSelected++)
   {
+    if (input.startsWith(validCommand[indexSelected]))
+    {
+      found = true;
+      break;
+    }
+  }
+  if (!found)
+  {
+    sprintf(tmp, "command %s not vaild \n", input.c_str());
+    Blynk.virtualWrite(V49, tmp);
+    return;
+  }
+  switch (indexSelected)
+  {
+  case 0:
     for (int i = 0; i < numberOfElements; i++)
     {
       Serial.println(validCommand[i]);
       sprintf(tmp, "%s %s", validCommand[i].c_str(), "\n");
       Blynk.virtualWrite(V49, tmp);
     }
-  }
-  else if (input.startsWith("reboot"))
-  {
-    Serial.println("Reboot command received. Restarting...");
+    break;
+  case 1:
     queStat();
     ESP.restart();
-  }
-  else if (input.startsWith("up"))
-    printUptime();
-
-  else if (input.startsWith("bmx") || input.startsWith("bme") || input.startsWith("sht") || input.startsWith("adc") || input.startsWith("ds1") || input.startsWith("bmp"))
-  {
-    getSensorData4User(input);
-  }
-  else if (input.startsWith("refr"))
-  {
-    lastSensorsConnected = ""; // force output
-    refreshWidgets();
-    failSocket = recoveredSocket = retry = 0;
-  }
-  else if (input.startsWith("ping"))
-  {
+    break;
+  case 2:
     ping();
-  }
-  // else if (input.startsWith("test"))
-  else
-  {
-    sprintf(tmp, "command %s not vaild \n", input.c_str());
-    Blynk.virtualWrite(V49, tmp);
+    break;
+  case 3:
+    printUptime();
+    break;
+  case 4:
+    resetStats();
+    break;
+  case 5:
+    lastSensorsConnected = "";
+    refreshWidgets();
+    break;
+  default:
+    getSensorData4User(input);
   }
 }
 void printUptime()
@@ -667,7 +662,6 @@ void printUptime()
   // Print uptime to the serial monitor
   sprintf(tmp, "Uptime: %lu days, %lu hours, %lu minutes, %lu seconds\n", days, hours, minutes, seconds);
   Blynk.virtualWrite(V49, tmp);
-  Serial.printf("Uptime: %lu days, %lu hours, %lu minutes, %lu seconds\n", days, hours, minutes, seconds);
 }
 
 /**
@@ -825,19 +819,12 @@ void getSensorData4User(String input)
       if (index >= 0)
       {
         String parseIP = ip.substring(0, index);
+        String room = ip2room(parseIP);
         rc = socketClient((char *)parseIP.c_str(), (char *)"ALL", 0);
         if (rc)
           Serial.println("socketClient() failed");
         else
         {
-          // .find() has bugs when passing input.c_str() but works if hard code "adc"
-          // auto it = tagMap.find((std::string)input.c_str());
-          // auto it = tagMap.find("adc");
-          // if (it != tagMap.end())
-          // {
-          //   chipID = it->second; // Access value
-          // }
-          // Serial.printf("senur chip ID %d from blynk %s\n", chipID, input.c_str());
           for (const auto &pair : tagMap)
           {
             String sensor = pair.first.c_str();
@@ -850,12 +837,12 @@ void getSensorData4User(String input)
                 if (device == tokens[i][0])
                 {
                   float ftmp = tokens[i][1];
+                  // value is scaled by divider ratio (`tokens[i][3]`) before display
+                  // measuring 12v need voltage div [0][3] contains divider ratio
                   if (input.startsWith("adc"))
-                    // value is scaled by divider ratio (`tokens[i][3]`) before display
-                    // measuring 12v need voltage div [0][3] contains divider ratio
                     ftmp *= tokens[i][3];
 
-                  sprintf(tmp, "%s %f %s %s \n", label.c_str(), ftmp, postFix.c_str(), parseIP.c_str());
+                  sprintf(tmp, "%s %f %s %s \n", label.c_str(), ftmp, postFix.c_str(), room.c_str());
                   Blynk.virtualWrite(V49, tmp);
                 }
               }
@@ -869,7 +856,6 @@ void getSensorData4User(String input)
     }
   }
 }
-
 void ping()
 {
 
@@ -914,4 +900,26 @@ void ping()
   sprintf(line2, "\n\t pass %d dead %d time: %lu ms\n", alive, dead, millis() - start);
   strcat(line, line2);
   Blynk.virtualWrite(V49, line);
+}
+
+String ip2room(String ip)
+{
+  const std::map<String, String> locMap =
+      {
+          {"192.168.1.3", "Master Bedroom"},
+          {"192.168.1.6", "Guest Bedroom"},
+          {"192.168.1.4", "Mud Room"},
+          {"192.168.1.10", "Laundry Room"},
+          {"192.168.1.13", "Main Room"}};
+
+  // Map sensor IP to room label for user-friendly terminal output.
+  String location;
+
+  auto it = locMap.find(ip.c_str());
+  if (it != locMap.end())
+    location = it->second;
+  else
+    location = "";
+
+  return location;
 }
