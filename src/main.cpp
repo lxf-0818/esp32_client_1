@@ -585,7 +585,7 @@ int getSensorData(const String &sensorsConnected)
  */
 BLYNK_WRITE(V49)
 {
-  String validCommand[] = {"list", "reboot", "ping", "up", "reset", "refr", 
+  String validCommand[] = {"list", "reboot", "ping", "up", "reset", "refr",
                            "adc", "bme", "bmx", "ds1", "sht", "bmp"};
   char tmp[512];
   int indexSelected, numberOfElements;
@@ -626,7 +626,8 @@ BLYNK_WRITE(V49)
     }
     break;
   case 1:
-    queStat();
+    if (queStat())
+      Blynk.virtualWrite(V49, "all tasks complete\n");
     ESP.restart();
     break;
   case 2:
