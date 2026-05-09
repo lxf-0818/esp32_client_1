@@ -585,7 +585,7 @@ int getSensorData(const String &sensorsConnected)
  */
 BLYNK_WRITE(V49)
 {
-  String validCommand[] = {"list", "reboot", "ping", "up", "reset", "refr", "adc",
+  String validCommand[] = {"list", "reboot", "ping", "up", "reset", "refr", 
                            "adc", "bme", "bmx", "ds1", "sht", "bmp"};
   char tmp[512];
   int indexSelected, numberOfElements;
@@ -598,6 +598,7 @@ BLYNK_WRITE(V49)
     return;
   }
   input.toLowerCase();
+  // validate command ,can use the "default" in case statement but rather use that for all  "adc - bmp"
   numberOfElements = sizeof(validCommand) / sizeof(validCommand[0]);
 
   for (indexSelected = 0; indexSelected < numberOfElements; indexSelected++)
