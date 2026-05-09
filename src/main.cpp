@@ -224,6 +224,16 @@ void flashSSD()
  * */
 void refreshWidgets() // called every x seconds by SimpleTimer
 {
+  const std::map<String, String> locMap =
+      {
+          {"192.168.1.3", "Master Bedroom"},
+          {"192.168.1.6", "Guest Bedroom"},
+          {"192.168.1.4", "Mud Room"},
+          {"192.168.1.10", "Laundry Room"},
+          {"192.168.1.13", "Main Room"},
+
+      };
+
   char tmp[256];
   String sensorsConnected = performHttpGet(ipList);
   // Serial.printf("sensor connrcted %s\n", sensorsConnected.c_str());
@@ -239,17 +249,24 @@ void refreshWidgets() // called every x seconds by SimpleTimer
     Blynk.virtualWrite(V39, tmp);
     return;
   }
-
+  String location;
   if (lastSensorsConnected != sensorsConnected) // only update Blynk terminal when IP list changes
   {
     lastSensorsConnected = sensorsConnected;
     Blynk.virtualWrite(V46, "\nStart:\n");
     for (const auto &pair : ipMap)
     {
-      String identifier = pair.first.c_str(); // remove the unique name identifier
-      identifier = identifier.substring(0, identifier.length() - 2);
-      Serial.printf("Sensor: %s, IP: %s\n", identifier.c_str(), pair.second.c_str());
-      sprintf(tmp, "\tSensor: %s, IP: %s\n", identifier.c_str(), pair.second.c_str());
+      auto it = locMap.find(pair.second.c_str());
+      if (it != locMap.end())
+        location = it->second;
+      else
+        location = "not found";
+
+      String sensor = pair.first.c_str(); // remove the unique key for sensor
+      sensor = sensor.substring(0, sensor.length() - 2);
+
+    //  Serial.printf("Sensor: %s -> %s\n", sensor.c_str(), location.c_str());
+      sprintf(tmp, "\tSensor: %s -> %s\n", sensor.c_str(), location.c_str());
       Blynk.virtualWrite(V49, tmp);
     }
     sprintf(tmp, "\n\tenter 'list' for valid commands\n");
@@ -510,15 +527,7 @@ String performHttpGet(const char *url)
  */
 int getSensorData(const String &sensorsConnected)
 {
-  const std::map<String, String> locMap =
-      {
-          {"192.168.1.3", "Master Bedroom"},
-          {"192.168.1.6", "Guest Bedroom"},
-          {"192.168.1.4", "Mud Room"},
-          {"192.168.1.10", "Laundry Room"},
-          {"192.168.1.13", "Main Room"},
 
-        };
   // #define DEBUG_LIST
   String rows = sensorsConnected.substring(0, sensorsConnected.indexOf("|"));
   int numberOfRows = atoi(rows.c_str());
