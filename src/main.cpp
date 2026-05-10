@@ -248,10 +248,7 @@ void refreshWidgets() // called every x seconds by SimpleTimer
       // ipMap keys are stored as "<SENSOR>_<n>"; strip "_<n>" before display.
       String sensor = pair.first.c_str();
       sensor = sensor.substring(0, sensor.length() - 2);
-
-      // Emit one line per sensor with resolved location.
-      //  Serial.printf("Sensor: %s -> %s\n", sensor.c_str(), location.c_str());
-      sprintf(tmp, "\tSensor: %s -> %s\n", sensor.c_str(), location.c_str());
+      sprintf(tmp, "\tSensor: %s -> %s\n",  location.c_str(),sensor.c_str());
       Blynk.virtualWrite(V49, tmp);
     }
     sprintf(tmp, "\n\tenter 'list' for valid commands\n");
