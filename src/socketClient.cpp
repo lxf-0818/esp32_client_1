@@ -39,25 +39,27 @@
 #include <CRC32.h>
 #include <Wire.h>
 #include <map>
+#include <AESLib.h>
+
 #define NO_UPDATE_FAIL 0
 #define INPUT_BUFFER_LIMIT 2048
 #define SOCKET_AES
 #define MAX_LINE_LENGTH 120
 #define PORT 8888
-
+#define DEVICES 6
 // #define DEBUG
 
 extern String lastMsg;
 extern int failSocket, passSocket, recoveredSocket, retry;
-extern byte enc_iv_copy[16], aes_iv[16];
-extern char cleartext[];
+extern byte enc_iv_copy[N_BLOCK], aes_iv[N_BLOCK];
+extern char cleartext[INPUT_BUFFER_LIMIT];
 void taskSQL_HTTP(void *pvParameters);
 void setupHTTP_request(String sensorName, float tokens[]);
 int socketRecovery(char *IP, char *cmd2Send);
 int socketClient(char *espServer, char *command, bool updateErrorQueue);
 void upDateWidget(char *sensor, float tokens[]);
-void processSensorData(float tokens[5][5]);
-void printTokens(float tokens[5][5]);
+void processSensorData(float tokens[DEVICES][5]);
+void printTokens(float tokens[DEVICES][5]);
 void decrypt_to_cleartext(char *msg, uint16_t msgLen, byte iv[], char *cleartext);
 
 /**
@@ -81,7 +83,7 @@ void decrypt_to_cleartext(char *msg, uint16_t msgLen, byte iv[], char *cleartext
  * 4. Reads the response into a local buffer.
  * 5. Validates the CRC32 over the ciphertext substring.
  * 6. Decrypts the payload with AES-128-CBC when SOCKET_AES is defined.
- * 7. Tokenizes the plaintext records into the global `tokens[5][5]` float matrix.
+ * 7. Tokenizes the plaintext records into the global `tokens[DEVICES][5]` float matrix.
  *
  * On failure the function sets `lastMsg` to a descriptive error string and returns
  * a non-zero code. Recovery actions (calling `socketRecovery()`, incrementing
@@ -97,7 +99,7 @@ void decrypt_to_cleartext(char *msg, uint16_t msgLen, byte iv[], char *cleartext
 int socketClient(char *espServer, char *command, bool updateErrorQueue)
 {
     (void)updateErrorQueue;
-    extern float tokens[5][5];
+    extern float tokens[DEVICES][5];
     char str[500];
     bzero(str, 500);
     WiFiClient client;
@@ -202,7 +204,7 @@ int socketClient(char *espServer, char *command, bool updateErrorQueue)
  *               The first element in each row is the sensor code (as a float).
  * @note A previous bug related to "Stack canary" exceptions was resolved by increasing the stack size.
  */
-void processSensorData(float tokens[5][5])
+void processSensorData(float tokens[DEVICES][5])
 {
     const std::map<int, const char *> sensorMap =
         {
@@ -242,7 +244,7 @@ void processSensorData(float tokens[5][5])
  * @param tokens A 5x5 array of floating-point numbers representing the tokens.
  *               The first element of each row is treated as a sensor ID.
  */
-void printTokens(float tokens[5][5])
+void printTokens(float tokens[DEVICES][5])
 {
     for (int i = 0; i < 5; i++)
     {

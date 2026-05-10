@@ -80,6 +80,7 @@
 #define SCREEN_WIDTH 128 // OLED display width, in pixels
 #define SCREEN_HEIGHT 64 // OLED display height, in pixels
 #define BLYNK_PRINT Serial
+#define DEVICES 6
 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 #define SSD_ADDR 0x3c
@@ -94,7 +95,7 @@ void getBootTime(char *lastBook, char *strReason);
 int getSensorData(const String &sensorsConnected);
 void getSensorData4User(String input);
 int socketRecovery(char *IP, char *cmd2Send);
-void processSensorData(float tokens[5][5]);
+void processSensorData(float tokens[DEVICES][5]);
 String performHttpGet(const char *url);
 int decryptWifiCredentials(char *auth, char *ssid, char *psw);
 int socketClient(char *espServer, char *command, bool updateErorrQue);
@@ -107,7 +108,7 @@ bool isServerConnected(const char *serverIP, uint16_t port = 8888);
 void generateInterrupt();
 void printUptime();
 String getIP(String sensorName);
-void printTokens(float tokens[5][5]);
+void printTokens(float tokens[DEVICES][5]);
 void ping();
 String ip2room(String ip);
 
@@ -120,7 +121,7 @@ HTTPClient http;
 String lastMsg;
 char lastBoot[20], strReason[60];
 BlynkTimer timer;
-float tokens[5][5] = {};
+float tokens[DEVICES][5] = {};
 bool setAlarm = false;
 Ticker lwdTicker;
 String lastSensorsConnected = "";
@@ -248,8 +249,12 @@ void refreshWidgets() // called every x seconds by SimpleTimer
       // ipMap keys are stored as "<SENSOR>_<n>"; strip "_<n>" before display.
       String sensor = pair.first.c_str();
       sensor = sensor.substring(0, sensor.length() - 2);
-      sprintf(tmp, "\tSensor: %s -> %s\n",  location.c_str(),sensor.c_str());
+     // sprintf(tmp, "Sensor: %s -> %s \nip:%s\n", location.c_str(), sensor.c_str(),pair.second.c_str());
+      sprintf(tmp,"Sensor: %s  %s \n", sensor.c_str(),pair.second.c_str());
       Blynk.virtualWrite(V49, tmp);
+      sprintf(tmp, "\t\tLocation: %s \n", location.c_str());
+      Blynk.virtualWrite(V49, tmp);
+     
     }
     sprintf(tmp, "\n\tenter 'list' for valid commands\n");
     Blynk.virtualWrite(V49, tmp);
@@ -867,12 +872,14 @@ void ping()
   // display so the user-facing sensor name is clean (e.g. "BME280" not "BME280_0").
   int dead, alive;
   unsigned long start;
-  char line[20], line2[50];
+  char line[50], line1[50];
   for (const auto &pair : ipMap)
   {
     alive = dead = 0;
     start = millis();
-    sprintf(line, "%s %s:\n", pair.first.substr(0, 3).c_str(), pair.second.c_str());
+    String room = ip2room(pair.second.c_str());
+
+    sprintf(line, "%s %s: %s\n", pair.first.substr(0, 3).c_str(), pair.second.c_str(),room.c_str());
     for (int j = 0; j < 4; j++)
     {
       if (isServerConnected(pair.second.c_str()))
@@ -880,13 +887,12 @@ void ping()
       else
         dead++;
     }
-    sprintf(line2, "\tpass %d dead %d  time: %lu ms\n", alive, dead, millis() - start);
-    strcat(line, line2);
+    sprintf(line1, "\tpass %d dead %d  time: %lu ms\n", alive, dead, millis() - start);
+    strcat(line, line1);
     Blynk.virtualWrite(V49, line);
   }
   // ping http
-  snprintf(line, strlen(ipList), "%s\n", ipList); // iplist is not fully displayed after   192.168.1.252/ip.php
-  alive = dead = 0;
+  sprintf(line,"%s", ipList); 
   start = millis();
   for (int j = 0; j < 4; j++)
   {
@@ -896,8 +902,8 @@ void ping()
     else
       alive++;
   }
-  sprintf(line2, "\n\t pass %d dead %d time: %lu ms\n", alive, dead, millis() - start);
-  strcat(line, line2);
+  sprintf(line1, "\n\t pass %d dead %d time: %lu ms\n", alive, dead, millis() - start);
+  strcat(line, line1);
   Blynk.virtualWrite(V49, line);
 }
 
@@ -909,7 +915,10 @@ String ip2room(String ip)
           {"192.168.1.6", "Guest Bedroom"},
           {"192.168.1.4", "Mud Room"},
           {"192.168.1.10", "Laundry Room"},
-          {"192.168.1.13", "Main Room"}};
+          {"192.168.1.13", "Main Room"},
+          {"192.168.1.13", "Outside"},
+
+      };
 
   // Map sensor IP to room label for user-friendly terminal output.
   String location;
