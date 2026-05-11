@@ -113,6 +113,7 @@ void ping();
 String ip2room(String ip);
 
 std::map<std::string, std::string> ipMap;
+std::map<std::string, std::string> locMap1;
 const uint16_t port = 8888;
 String sensorName = "NO DEVICE";
 int failSocket, passSocket, recoveredSocket, retry, timerID1, passPost;
@@ -236,6 +237,13 @@ void refreshWidgets() // called every x seconds by SimpleTimer
     Blynk.virtualWrite(V39, tmp);
     return;
   }
+  
+  Blynk.virtualWrite(V7, passSocket);
+  Blynk.virtualWrite(V20, failSocket);
+  Blynk.virtualWrite(V19, recoveredSocket);
+  Blynk.virtualWrite(V34, retry);
+  Blynk.virtualWrite(V47, lastMsg);
+
   if (lastSensorsConnected != sensorsConnected) // only update Blynk terminal when IP list changes
   {
 
@@ -249,12 +257,11 @@ void refreshWidgets() // called every x seconds by SimpleTimer
       // ipMap keys are stored as "<SENSOR>_<n>"; strip "_<n>" before display.
       String sensor = pair.first.c_str();
       sensor = sensor.substring(0, sensor.length() - 2);
-     // sprintf(tmp, "Sensor: %s -> %s \nip:%s\n", location.c_str(), sensor.c_str(),pair.second.c_str());
-      sprintf(tmp,"Sensor: %s  %s \n", sensor.c_str(),pair.second.c_str());
+      // sprintf(tmp, "Sensor: %s -> %s \nip:%s\n", location.c_str(), sensor.c_str(),pair.second.c_str());
+      sprintf(tmp, "Sensor: %s  %s \n", sensor.c_str(), pair.second.c_str());
       Blynk.virtualWrite(V49, tmp);
       sprintf(tmp, "\t\tLocation: %s \n", location.c_str());
       Blynk.virtualWrite(V49, tmp);
-     
     }
     sprintf(tmp, "\n\tenter 'list' for valid commands\n");
     Blynk.virtualWrite(V49, tmp);
@@ -262,11 +269,6 @@ void refreshWidgets() // called every x seconds by SimpleTimer
 }
 void resetStats()
 {
-  Blynk.virtualWrite(V7, passSocket);
-  Blynk.virtualWrite(V20, failSocket);
-  Blynk.virtualWrite(V19, recoveredSocket);
-  Blynk.virtualWrite(V34, retry);
-  Blynk.virtualWrite(V47, lastMsg);
   Blynk.virtualWrite(V49, "reset complete\n");
 }
 /**
@@ -518,11 +520,11 @@ String performHttpGet(const char *url)
 int getSensorData(const String &sensorsConnected)
 {
 
-  // #define DEBUG_LIST
+#define DEBUG_LIST_
   String rows = sensorsConnected.substring(0, sensorsConnected.indexOf("|"));
   int numberOfRows = atoi(rows.c_str());
 
-#ifdef DEBUG_LIST
+#ifdef DEBUG_LIST_
   Serial.printf("list of devices: %s", sensorsConnected.c_str()); // warning "\n" in sensorConnected string
 #endif
 
@@ -531,6 +533,7 @@ int getSensorData(const String &sensorsConnected)
   ipMap.clear(); // if sensor was removed (failed to connect) need to clear
   for (int i = 0; i < numberOfRows; i++)
   {
+    // 2|1101,BME:192.168.1.4|1083,BMP:192.168.1.3|
     int index = sensorConnected.indexOf(":");
     int index1 = sensorConnected.indexOf(",");
     int index2 = sensorConnected.indexOf("|");
@@ -540,7 +543,7 @@ int getSensorData(const String &sensorsConnected)
     sensorName = sensorName + "_" + i; // create unique key ,  when multpule esp8266 have the same sensor
     // update map with IP address , used downstream for connecting to server from terminal(V49) commands
     ipMap[sensorName.c_str()] = ip.c_str();
-#ifdef DEBUG_LIST
+#ifdef DEBUG_LIST2
     Serial.printf("Sensor: %s, IP: %s\n", sensorName.c_str(), ip.c_str());
 #endif
     // NOTE: socketClient is over-loaded function by removing the last parm causes compile time errors Wwll fixed 1 day!
@@ -879,7 +882,7 @@ void ping()
     start = millis();
     String room = ip2room(pair.second.c_str());
 
-    sprintf(line, "%s %s: %s\n", pair.first.substr(0, 3).c_str(), pair.second.c_str(),room.c_str());
+    sprintf(line, "%s %s: %s\n", pair.first.substr(0, 3).c_str(), pair.second.c_str(), room.c_str());
     for (int j = 0; j < 4; j++)
     {
       if (isServerConnected(pair.second.c_str()))
@@ -892,7 +895,7 @@ void ping()
     Blynk.virtualWrite(V49, line);
   }
   // ping http
-  sprintf(line,"%s", ipList); 
+  sprintf(line, "%s", ipList);
   start = millis();
   for (int j = 0; j < 4; j++)
   {
@@ -912,11 +915,11 @@ String ip2room(String ip)
   const std::map<String, String> locMap =
       {
           {"192.168.1.3", "Master Bedroom"},
-          {"192.168.1.6", "Guest Bedroom"},
-          {"192.168.1.4", "Mud Room"},
-          {"192.168.1.10", "Laundry Room"},
           {"192.168.1.13", "Main Room"},
-          {"192.168.1.13", "Outside"},
+          {"192.168.1.10", "Mud Room"},
+          {"192.168.1.4", "Laundry Room"},
+          {"192.168.1.11", "Guest Room"},
+          {"192.168.1.6", "Guest Room"}, // adc
 
       };
 

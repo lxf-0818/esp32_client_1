@@ -185,7 +185,7 @@ int socketClient(char *espServer, char *command, bool updateErrorQueue)
 
         token = strtok(NULL, ",");
     }
-//#define DEBUG_TOKENS
+// #define DEBUG_TOKENS
 #ifdef DEBUG_TOKENS
     printTokens(tokens);
 #endif
@@ -220,6 +220,8 @@ void processSensorData(float tokens[DEVICES][5])
     for (int i = 0; i < 5; i++)
     {
         int sensorCode = static_cast<int>(tokens[i][0]);
+        if (!sensorCode)
+            continue;
         auto it = sensorMap.find(sensorCode);
         if (it != sensorMap.end())
         {
@@ -229,7 +231,10 @@ void processSensorData(float tokens[DEVICES][5])
             upDateWidget(sensor, tokens[i]);
         }
         else
+        {
+            Serial.printf("unknow code %d\n", sensorCode);
             continue; // Unknown sensor code
+        }
     }
 }
 /**
