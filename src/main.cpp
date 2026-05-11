@@ -113,7 +113,7 @@ void ping();
 String ip2room(String ip);
 
 std::map<std::string, std::string> ipMap;
-std::map<std::string, std::string> locMap1;
+std::map<std::string, std::string> locMap;
 const uint16_t port = 8888;
 String sensorName = "NO DEVICE";
 int failSocket, passSocket, recoveredSocket, retry, timerID1, passPost;
@@ -237,12 +237,12 @@ void refreshWidgets() // called every x seconds by SimpleTimer
     Blynk.virtualWrite(V39, tmp);
     return;
   }
-  
+
   Blynk.virtualWrite(V7, passSocket);
   Blynk.virtualWrite(V20, failSocket);
   Blynk.virtualWrite(V19, recoveredSocket);
   Blynk.virtualWrite(V34, retry);
-  Blynk.virtualWrite(V47, lastMsg);
+  Blynk.virtualWrite(V47, "foo");
 
   if (lastSensorsConnected != sensorsConnected) // only update Blynk terminal when IP list changes
   {
@@ -269,6 +269,11 @@ void refreshWidgets() // called every x seconds by SimpleTimer
 }
 void resetStats()
 {
+  failSocket = recoveredSocket = retry = 0;
+  Blynk.virtualWrite(V20, failSocket);
+  Blynk.virtualWrite(V19, recoveredSocket);
+  Blynk.virtualWrite(V34, retry);
+  Blynk.virtualWrite(V47, "");
   Blynk.virtualWrite(V49, "reset complete\n");
 }
 /**
@@ -316,6 +321,8 @@ BLYNK_CONNECTED()
     Blynk.virtualWrite(V7, passSocket);
 
     Serial.printf("passSocket %d  \n", passSocket);
+    failSocket = recoveredSocket = retry = 0;
+
   }
 }
 /**
@@ -492,74 +499,67 @@ String performHttpGet(const char *url)
 }
 
 /**
- * @brief Parses a string containing information about connected sensors and their IP addresses,
- *        and stores the sensor names and IPs in a map. Additionally, attempts to read sensor data
- *        from each connected device using a socket client.
+ * @brief Parses server sensor roster and polls each listed node for live data.
  *
- * @param sensorsConnected A formatted string containing the number of devices and their details.
- *        Format: "<number_of_devices>|<sensor_name1>:<ip1>|<sensor_name2>:<ip2>|..."
- *        Example: "2|DS1_DS1:192.168.1.5|BMP:192.168.1.7|"
+ * Expected input format:
+ * "<rows>|<SENSOR>:<IP>,<LOCATION>|<SENSOR>:<IP>,<LOCATION>|...|"
  *
- * @note The function assumes that the input string is well-formed and contains valid data.
- *       Debugging information can be enabled by defining the macros DEBUG_LIST and DEBUG.
+ * For each parsed entry, this function:
+ * - Updates ipMap with a unique sensor key (<SENSOR>_<index>) to avoid collisions.
+ * - Updates locMap with IP-to-location mapping for terminal/user display.
+ * - Issues an "ALL" socket request to collect the latest sensor payload.
+ * - Queues socket recovery on failures and increments failSocket.
  *
- * @details The function performs the following steps:
- *          1. Extracts the number of devices from the input string.
- *          2. Iterates through each device's information, extracting the sensor name and IP address.
- *          3. Appends "_<index>" to each sensor name before storing it as an `ipMap` key to prevent
- *             key collisions when multiple boards report the same sensor type (e.g. two DS18B20 nodes).
- *          4. Stores the unique sensor name and IP address in `ipMap`.
- *          5. Attempts to read sensor data from each device using the `socketClient` function.
- *          6. Logs debugging information if the DEBUG or DEBUG_LIST macros are defined.
- *
- * @warning The function modifies the input string `sensorsConnected` during processing.
- *          Ensure that the input string is not needed elsewhere in its original form.
- *
- * @note If the `socketClient` function fails for a device, an error message is printed to the serial monitor.
+ * @param sensorsConnected Delimited roster payload returned by ip.php.
+ * @return int Number of rows parsed from the payload header.
  */
 int getSensorData(const String &sensorsConnected)
 {
-
-#define DEBUG_LIST_
+  // Header before first '|' is row count sent by the backend.
   String rows = sensorsConnected.substring(0, sensorsConnected.indexOf("|"));
   int numberOfRows = atoi(rows.c_str());
 
-#ifdef DEBUG_LIST_
-  Serial.printf("list of devices: %s", sensorsConnected.c_str()); // warning "\n" in sensorConnected string
-#endif
-
+  // Point to payload
   String sensorConnected = sensorsConnected.substring(sensorsConnected.indexOf("|") + 1,
                                                       sensorsConnected.lastIndexOf("|"));
-  ipMap.clear(); // if sensor was removed (failed to connect) need to clear
+
+  // Rebuild maps each refresh so stale/disconnected devices are removed.
+
+  ipMap.clear();
+  locMap.clear();
+
   for (int i = 0; i < numberOfRows; i++)
   {
-    // 2|1101,BME:192.168.1.4|1083,BMP:192.168.1.3|
-    int index = sensorConnected.indexOf(":");
-    int index1 = sensorConnected.indexOf(",");
-    int index2 = sensorConnected.indexOf("|");
-    String ip = sensorConnected.substring(index + 1, index2);
-    String sensorName = sensorConnected.substring(index1 + 1, index);
+    // BME:192.168.1.4,Laundry Room|BMP:192.168.1.3,Master Bedroom|
 
-    sensorName = sensorName + "_" + i; // create unique key ,  when multpule esp8266 have the same sensor
+    // Parse one device tuple: "sensor:ip,location|".
+    int index = sensorConnected.indexOf(":");
+    String sensorName = sensorConnected.substring(0, index);
+
+    int index1 = sensorConnected.indexOf(",");
+    String ip = sensorConnected.substring(index + 1, index1);
+
+    int index2 = sensorConnected.indexOf("|");
+    String location = sensorConnected.substring(index1 + 1, index2);
+
+    // Suffix index keeps map keys unique for duplicate sensor types.
+    sensorName = sensorName + "_" + i;
     // update map with IP address , used downstream for connecting to server from terminal(V49) commands
     ipMap[sensorName.c_str()] = ip.c_str();
-#ifdef DEBUG_LIST2
-    Serial.printf("Sensor: %s, IP: %s\n", sensorName.c_str(), ip.c_str());
-#endif
+    locMap[ip.c_str()] = location.c_str();
+    
     // NOTE: socketClient is over-loaded function by removing the last parm causes compile time errors Wwll fixed 1 day!
     int rc = socketClient((char *)ip.c_str(), (char *)"ALL", 1); // read sensor data from connected device
     if (rc)
     {
-      // Moved socketRecovery logic here  the last parameter(updateErorrQue) is not use, in socketClient
+      // On socket failure, queue recovery and account the failed poll.
       socketRecovery((char *)ip.c_str(), (char *)"ALL"); // current failed write to error recovery queue
       failSocket++;
     }
+    // tokens[][] is populated by socketClient and consumed by processSensorData.
     processSensorData(tokens);
     sensorConnected = sensorConnected.substring(index2 + 1); // Move to the next device in string
 
-#ifdef DEBUG
-    Serial.printf("device connect %s \n ", sensorConnected.c_str());
-#endif
   } // end for
   return numberOfRows;
 }
@@ -912,25 +912,12 @@ void ping()
 
 String ip2room(String ip)
 {
-  const std::map<String, String> locMap =
-      {
-          {"192.168.1.3", "Master Bedroom"},
-          {"192.168.1.13", "Main Room"},
-          {"192.168.1.10", "Mud Room"},
-          {"192.168.1.4", "Laundry Room"},
-          {"192.168.1.11", "Guest Room"},
-          {"192.168.1.6", "Guest Room"}, // adc
-
-      };
-
-  // Map sensor IP to room label for user-friendly terminal output.
+   // Map sensor IP to room label for user-friendly terminal output.
   String location;
-
   auto it = locMap.find(ip.c_str());
   if (it != locMap.end())
-    location = it->second;
+    location = it->second.c_str();
   else
     location = "";
-
   return location;
 }
