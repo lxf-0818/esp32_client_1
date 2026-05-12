@@ -132,6 +132,7 @@ unsigned long lwdTimeout = LWD_TIMEOUT;
 const char *getRowCnt = "http://192.168.1.252/rows.php";
 const char *deleteAll = "http://192.168.1.252/deleteALL.php";
 const char *ipList = "http://192.168.1.252/ip.php";
+const char *locList = "http://192.168.1.252/loc.php";
 const char *ipDelete = "http://192.168.1.252/deleteIP.php";
 const char *esp_data = "http://192.168.1.252/esp-data.php";
 
@@ -312,7 +313,7 @@ BLYNK_CONNECTED()
   String payload = performHttpGet(getRowCnt);
   if (payload.isEmpty())
   {
-    Serial.println("Failed to HHTP request ");
+    Serial.println("Failed php script ");
     return;
   }
   else
@@ -322,7 +323,6 @@ BLYNK_CONNECTED()
 
     Serial.printf("passSocket %d  \n", passSocket);
     failSocket = recoveredSocket = retry = 0;
-
   }
 }
 /**
@@ -547,7 +547,7 @@ int getSensorData(const String &sensorsConnected)
     // update map with IP address , used downstream for connecting to server from terminal(V49) commands
     ipMap[sensorName.c_str()] = ip.c_str();
     locMap[ip.c_str()] = location.c_str();
-    
+
     // NOTE: socketClient is over-loaded function by removing the last parm causes compile time errors Wwll fixed 1 day!
     int rc = socketClient((char *)ip.c_str(), (char *)"ALL", 1); // read sensor data from connected device
     if (rc)
@@ -912,7 +912,7 @@ void ping()
 
 String ip2room(String ip)
 {
-   // Map sensor IP to room label for user-friendly terminal output.
+  // Map sensor IP to room label for user-friendly terminal output.
   String location;
   auto it = locMap.find(ip.c_str());
   if (it != locMap.end())
