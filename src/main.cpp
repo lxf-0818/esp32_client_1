@@ -88,7 +88,7 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 void initRTOS();
 void flashSSD();
 bool checkSSD();
-
+void blynkWrite(char *cmd, int index);
 void refreshWidgets();
 void resetStats();
 void getBootTime(char *lastBook, char *strReason);
@@ -132,7 +132,6 @@ unsigned long lwdTimeout = LWD_TIMEOUT;
 const char *getRowCnt = "http://192.168.1.252/rows.php";
 const char *deleteAll = "http://192.168.1.252/deleteALL.php";
 const char *ipList = "http://192.168.1.252/ip.php";
-const char *locList = "http://192.168.1.252/loc.php";
 const char *ipDelete = "http://192.168.1.252/deleteIP.php";
 const char *esp_data = "http://192.168.1.252/esp-data.php";
 
@@ -243,7 +242,7 @@ void refreshWidgets() // called every x seconds by SimpleTimer
   Blynk.virtualWrite(V20, failSocket);
   Blynk.virtualWrite(V19, recoveredSocket);
   Blynk.virtualWrite(V34, retry);
-  Blynk.virtualWrite(V47, "foo");
+  Blynk.virtualWrite(V47, lastMsg);
 
   if (lastSensorsConnected != sensorsConnected) // only update Blynk terminal when IP list changes
   {
@@ -323,6 +322,10 @@ BLYNK_CONNECTED()
 
     Serial.printf("passSocket %d  \n", passSocket);
     failSocket = recoveredSocket = retry = 0;
+    // index 0=ADC, 1=BME, 2=SHT, 3=BMP, 4=DS1, 5=ALL
+    // String sensor[] = {"ADC", "BME", "SHT", "BMP", "DS1", "BMX" "ALL"};
+    Blynk.setProperty(V9, "labels", "ADC", "BME", "SHT", "BMP", "DS1", "BMX", "ALL");
+    Blynk.setProperty(V10, "labels", "ADC", "BME", "SHT", "BMP", "DS1", "BMX", "ALL");
   }
 }
 /**
@@ -351,26 +354,18 @@ BLYNK_WRITE(V18)
  */
 BLYNK_WRITE(BLINK_TST)
 {
-  timer.disable(timerID1); // pause periodic refresh to prevent socket contention during test
-
-  // Labels must match the Blynk widget button order for virtual pin BLINK_TST (V9):
-  // index 0=ADC, 1=BME, 2=SHT, 3=BMP, 4=DS1, 5=ALL
-  String sensor[] = {"ADC", "BME", "SHT", "BMP", "DS1", "ALL"};
+  timer.disable(timerID1);   // pause periodic refresh to prevent socket contention during test
   int index = param.asInt(); // widget sends the selected button index (0-based)
-  char *str = nullptr;
 
-  // Walk every registered sensor; send "BLK" to those matching the selected type (or ALL)
-  for (const auto &pair : ipMap)
-  {
-    // ipMap keys are "<SENSOR>_<n>"; compare only the first 3 chars against the selection
-    if (sensor[index] == "ALL" || sensor[index] == pair.first.substr(0, 3).c_str())
-    {
-      str = socketClient((char *)pair.second.c_str(), (char *)"BLK"); // returns heap-allocated C-string
-      Serial.printf("blk_tst %s \n", str);
-      free(str);  // release heap buffer returned by socketClient
-      lwdtFeed(); // reset watchdog; BLK round-trip can exceed LWD_TIMEOUT on slow nodes
-    }
-  }
+  blynkWrite((char *)"BLK", index);
+  timer.enable(timerID1); // restore periodic widget refresh
+}
+BLYNK_WRITE(V10)
+{
+  timer.disable(timerID1);   // pause periodic refresh to prevent socket contention during test
+  int index = param.asInt(); // widget sends the selected button index (0-based)
+
+  blynkWrite((char *)"RST", index);
   timer.enable(timerID1); // restore periodic widget refresh
 }
 /**
@@ -649,7 +644,7 @@ BLYNK_WRITE(V49)
     refreshWidgets();
     break;
   default:
-    getSensorData4User(input);
+    getSensorData4User(input.substring(0, 3));
   }
 }
 void printUptime()
@@ -746,9 +741,11 @@ bool checkSSD()
  * @brief Retrieves the IP address associated with a given sensor name.
  *
  * This function searches through a map of sensor names and their corresponding
- * IP addresses, performing a case-insensitive comparison to find a match. If a match
+ * IP addresses, performing a comparison to find a match. If a match
  * is found, the associated IP address is returned. If no match is found, the function
  * returns empty string "".
+ *
+ * @note This function is used only when interfacing with the blynk terminal app
  *
  * @param sensorName The name of the sensor to look up.
  * @return String All matching IP addresses as a `|`-delimited string with a trailing `|`
@@ -761,13 +758,7 @@ String getIP(String sensorName)
   sensorKey.toUpperCase();
   for (const auto &pair : ipMap)
   {
-#ifdef DEBUG_
-    char tmp[100];
-    sprintf(tmp, "Sensor %s ip %s\n", pair.first.c_str(), pair.second.c_str());
-    Blynk.virtualWrite(V49, tmp);
-#endif
     mapKey = pair.first.c_str();
-    mapKey.toUpperCase();
     if (mapKey.indexOf(sensorKey) >= 0)
     {
       returnIPstring.concat(pair.second.c_str());
@@ -790,8 +781,6 @@ String getIP(String sensorName)
  * @note For "adc" sensors the raw voltage is multiplied by the voltage-divider ratio stored
  *       in `tokens[i][3]` to produce the actual 12 V reading.
  * @note If no IP is found for the sensor prefix, an error message is written to V49.
- * @note `std::map::find()` is intentionally avoided: constructing a `std::string` key from
- *       `String::c_str()` triggers a lookup bug. The tag map is iterated manually instead.
  */
 void getSensorData4User(String input)
 {
@@ -803,7 +792,8 @@ void getSensorData4User(String input)
           {"sht", 44},
           {"adc", 48},
           {"ds1", 28}};
-
+  int device;
+  String sensor;
   char tmp[512];
   String label = "Temp", postFix = "F";
   if (input.startsWith("adc"))
@@ -811,7 +801,7 @@ void getSensorData4User(String input)
     label = "Volt";
     postFix = "V";
   }
-  String ip = getIP(input.substring(0, 3).c_str());
+  String ip = getIP(input.c_str());
   if (ip.isEmpty())
   {
     sprintf(tmp, "no ip@ for sensor %s \n", input.c_str());
@@ -820,6 +810,7 @@ void getSensorData4User(String input)
   else
   {
     int rc = 0;
+    // do until all ip's are processed , the same sensor can be on multiple esp8266
     while (1)
     {
       int index = ip.indexOf("|");
@@ -827,36 +818,44 @@ void getSensorData4User(String input)
       {
         String parseIP = ip.substring(0, index);
         String room = ip2room(parseIP);
+
         rc = socketClient((char *)parseIP.c_str(), (char *)"ALL", 0);
         if (rc)
           Serial.println("socketClient() failed");
         else
         {
-          for (const auto &pair : tagMap)
+          auto it = tagMap.find(input);
+          if (it != tagMap.end())
+            device = it->second;
+          else
           {
-            String sensor = pair.first.c_str();
-            int device = pair.second;
-            if (input.substring(0, 3) == sensor)
+            for (const auto &pair : tagMap)
             {
-              // loop all device(s) data
-              for (int i = 0; i < 5; i++)
-              {
-                if (device == tokens[i][0])
-                {
-                  float ftmp = tokens[i][1];
-                  // value is scaled by divider ratio (`tokens[i][3]`) before display
-                  // measuring 12v need voltage div [0][3] contains divider ratio
-                  if (input.startsWith("adc"))
-                    ftmp *= tokens[i][3];
+              Serial.printf("1st %s 2nd %d\n", pair.first.c_str(), pair.second);
+            }
+            Serial.printf("device not found .%s.\n", input.c_str());
+            return;
+          }
 
-                  sprintf(tmp, "%s %f %s %s \n", label.c_str(), ftmp, postFix.c_str(), room.c_str());
-                  Blynk.virtualWrite(V49, tmp);
-                }
-              }
+          // loop all device(s) data
+          for (int i = 0; i < 5; i++)
+          {
+            if (device == tokens[i][0])
+            {
+              if (!device)
+                break;
+              float ftmp = tokens[i][1];
+              // value is scaled by divider ratio (`tokens[i][3]`) before display
+              // measuring 12v need voltage div [0][3] contains divider ratio
+              if (input.startsWith("adc"))
+                ftmp *= tokens[i][3];
+
+              sprintf(tmp, "%s %f %s %s \n", label.c_str(), ftmp, postFix.c_str(), room.c_str());
+              Blynk.virtualWrite(V49, tmp);
             }
           }
         }
-        ip = ip.substring(index + 1);
+        ip = ip.substring(index + 1); // go to the char in string (pass the "|")
       }
       else
         break;
@@ -920,4 +919,34 @@ String ip2room(String ip)
   else
     location = "";
   return location;
+}
+
+void blynkWrite(char *cmd, int index)
+{
+  bool found = false;
+  // Labels must match the Blynk widget button order for virtual pin BLINK_TST (V9):
+  // the widget is set at BLYNK_CONNECTED Blynk.setProperty(V9,................
+  // index 0=ADC, 1=BME, 2=SHT, 3=BMP, 4=DS1, 5=BMX 6=ALL
+  String sensor[] = {"ADC", "BME", "SHT", "BMP", "DS1", "BMX", "ALL"};
+  Serial.println(index);
+  char *str = nullptr;
+  String sensorIndex = sensor[index];
+  // Walk every registered sensor; send "BLK/RST" to those matching the selected type (or ALL)
+  for (const auto &pair : ipMap)
+  {
+    int length = pair.first.length();
+    // ipMap keys are "<BMX_BME>_<n>"; compare only the first 3 chars against the selection
+    String firstPair = pair.first.substr(0, length - 2).c_str();
+    if (sensor[index] == "ALL" || strstr(firstPair.c_str(), sensorIndex.c_str()))
+    {
+      found = true;
+      str = socketClient((char *)pair.second.c_str(), cmd); // returns heap-allocated C-string
+      Serial.printf("%s_tst %s \n", cmd, str);
+      if (strstr(cmd, (char *)"BLK"))
+        free(str); // release heap buffer returned by socketClient
+      lwdtFeed();  // reset watchdog; BLK round-trip can exceed LWD_TIMEOUT on slow nodes
+    }
+  }
+  if (!found)
+    Serial.printf("sensor %s not in ip map\n", sensorIndex.c_str());
 }

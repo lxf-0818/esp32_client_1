@@ -305,17 +305,21 @@ char *socketClient(char *espServer, char *command)
     {
         Serial.print("connection failed from socketClient ");
         Serial.println(espServer);
-        delay(5000);
         return NULL;
     }
     if (client.connected())
         client.println(command); // send cmd to server (esp8266) ie "BLK"/"RST"
 
+    if (strstr(command, (char *)"RST"))
+    {
+        client.stop();
+        return (char *)"server was rebooted";
+    }
     unsigned long timeout = millis();
     // wait for data to be available
     while (client.available() == 0)
     {
-        if (millis() - timeout > 35000)
+        if (millis() - timeout > 10000)
         {
             Serial.println(">>> Client Timeout !");
             client.stop();
