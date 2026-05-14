@@ -89,8 +89,10 @@ void initRTOS();
 int socketRecovery(char *IP, char *cmd2Send);
 void taskSocketRecov(void *pvParameters);
 void taskSQL_HTTP(void *pvParameters);
-void setupHTTP_request(String sensorName, float tokens[]);
+void setupHTTP_request(String sensorName, String sensorLocation, float tokens[]);
 void taskBlink(void *pvParameters);
+String ip2room(String ip);
+
 
 bool queStat();
 int deleteRow(String phpScript);
@@ -136,10 +138,10 @@ message_t message;
  * - Creates two queues:
  *   - `QueSocket_Handle`: A queue for socket-related data.
  *   - `QueHTTP_Handle`: A queue for HTTP-related messages.
- * - Creates three tasks with specific priorities and stack sizes:
- *   - `taskBlink`: Handles LED blinking functionality.
- *   - `taskSQL_HTTP`: Manages HTTP-related operations.
- *   - `taskSocketRecov`: Handles socket recovery operations.
+ * - Creates three tasks with specific priorities, stack sizes, and core affinity:
+ *   - `taskBlink`: Handles LED blinking functionality (core 0, priority 1).
+ *   - `taskSQL_HTTP`: Manages HTTP-related operations (core 0, priority 2).
+ *   - `taskSocketRecov`: Handles socket recovery operations (core 1, priority 3).
  *   
  * - FreeRTOS Scheduler: Once the above tasks are created, the FreeRTOS scheduler automatically manages their
  *                       execution based on their priorities and delays (vTaskDelay).
@@ -387,15 +389,16 @@ void taskSocketRecov(void *pvParameters)
 /**
  * @brief Prepares and sends an HTTP request message to a FreeRTOS queue.
  *
- * This function constructs an HTTP request string using the provided sensor name,
- * token values, and a predefined API key and sensor location. It then packages
- * the request into a message structure and attempts to send it to a FreeRTOS queue.
+ * This function constructs an HTTP POST body using the provided sensor name,
+ * sensor location, token values, and the global API key. It then copies the
+ * payload into a message structure and attempts to enqueue it on `QueHTTP_Handle`.
  *
  * @param sensorName The name of the sensor to include in the HTTP request.
+ * @param sensorLocation Logical location string associated with the sensor.
  * @param tokens An array of float values used to populate the HTTP request data.
- *               - tokens[1]: First value to include in the request.
- *               - tokens[2]: Second value to include in the request.
- *               - tokens[3]: Key value to associate with the message.
+ *               - tokens[1]: Base measurement value.
+ *               - tokens[2]: Secondary measurement value.
+ *               - tokens[3]: Scaling factor for ADS1115 and queue key value.
  *
  * @note The function uses an external variable `passSocket` for additional data
  *       in the HTTP request and an external FreeRTOS queue handle `QueHTTP_Handle`.
@@ -403,20 +406,24 @@ void taskSocketRecov(void *pvParameters)
  * @details The constructed HTTP request string includes the following parameters:
  *          - api_key: A predefined API key,
  *          - sensor: The provided sensor name.
- *          - location: A predefined sensor location ("HOME").
+ *          - location: The provided `sensorLocation` argument.
  *          - value1, value2: Values from the `tokens` array.
  *          - value3: The value of the external variable `passSocket`.
  *
+ * If `sensorName` contains "ADS1115", value1 is multiplied by `tokens[3]`
+ * before being sent.
+ *
  * If the queue is full, the function logs a message to the serial output.
+ * If the queue handle is null or there is no free queue slot, the message is
+ * not enqueued.
  *
  * @warning Ensure that `QueHTTP_Handle` is initialized and has sufficient space
  *          before calling this function. The function does not block if the queue
  *          is full.
  */
-void setupHTTP_request(String sensorName, float tokens[])
+void setupHTTP_request(String sensorName, String sensorLocation, float tokens[])
 {
     message_t message;
-    String sensorLocation = "HOME";
     extern int passSocket;
     float tmp = tokens[1];
     if (sensorName.indexOf("ADS1115") >= 0)

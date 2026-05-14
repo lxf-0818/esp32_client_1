@@ -9,7 +9,7 @@ Utility helpers for runtime metadata and diagnostics.
 - syncs time using NTP (`pool.ntp.org`)
 - formats boot timestamp
 - reads reset reason code and maps to readable text
-- retries time read up to 3 times
+- retries time read up to 3 times 
 
 Output examples:
 - `lastBoot`: `MM/DD/YYYY HH:MM 0xRR`

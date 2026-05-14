@@ -47,10 +47,9 @@ Current constants:
 
 | Task | Core | Priority | Stack | Delay |
 |---|---|---|---|---|
-| `taskBlink` | 1 | 1 | TASK_STACK_SIZE | BLINK_DELAY_MS |
+| `taskBlink` | 0 | 1 | TASK_STACK_SIZE | BLINK_DELAY_MS |
 | `taskSQL_HTTP` | 0 | 2 | TASK_STACK_SIZE × 2 | HTTP_DELAY_MS |
 | `taskSocketRecov` | 1 | 3 | TASK_STACK_SIZE × 2 | SOCKET_DELAY_MS |
-| `taskPing` | — | — | — | — |
 
 > `taskPing` has a function prototype but its implementation is **commented out** and is not active.
 
@@ -89,13 +88,13 @@ Additional behavior:
 - Calls socketClient(..., NO_UPDATE_FAIL) so normal fail stats are not double-counted.
 - Requeues failed recovery attempts back into QueSocket_Handle.
 
-### setupHTTP_request(sensorName, tokens)
-Builds URL-encoded payload from sensor values and enqueues into HTTP queue.
+### setupHTTP_request(sensorName, sensorLocation, tokens)
+Builds URL-encoded payload from sensor values and enqueues it into the HTTP queue.
 
 Payload format:
 - api_key=<phpKey loaded from /api.txt during login init>
 - sensor=<sensorName>
-- location=HOME
+- location=<sensorLocation>
 - value1=<tokens[1] or ADS1115-scaled value>
 - value2=<tokens[2]>
 - value3=<passSocket>
@@ -103,6 +102,10 @@ Payload format:
 Queue behavior:
 - Enqueues only when queue exists and has free space.
 - If HTTP queue is full, logs an error and drops the message (no reset/retry at enqueue site).
+
+Additional behavior:
+- If `sensorName` contains `ADS1115`, `value1` is multiplied by `tokens[3]` before enqueue.
+- The queued message key is set from `tokens[3]`.
 
 ### queStat()
 Utility to inspect queue state and gate restart behavior when work is still pending.

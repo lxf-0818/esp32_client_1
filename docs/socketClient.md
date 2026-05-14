@@ -37,7 +37,7 @@ Flow:
 5. split CRC and payload
 6. verify CRC32
 7. decrypt payload when SOCKET_AES is defined
-8. tokenize records into `tokens[5][5]`
+8. tokenize records into `tokens[6][5]`
 9. return 0 on success
 
 > **Note:** `updateErrorQueue` is accepted as a parameter but is currently unused
@@ -54,17 +54,17 @@ Overload for control commands that returns malloc-allocated response buffer.
 Caller must free returned memory.
 
 Current limits/behavior:
-- waits up to 35 seconds for first bytes
+- waits up to 10 seconds for first bytes
 - allocates a fixed 80-byte response buffer
 - restarts ESP32 if malloc fails
+- returns the literal string `server was rebooted` immediately when the command contains `RST`
 
-### processSensorData(tokens)
-Maps sensor IDs to names and forwards each row to:
-- `setupHTTP_request(sensorName, values)`
-- `upDateWidget(sensorName, values)`
-- increments `passSocket` for each recognized sensor row.
 
 Unknown sensor codes are silently skipped.
+
+The `ip` argument is converted to a room/location label with `ip2room(ip)` and
+passed through to the HTTP request builder so the queued payload includes the
+sensor location.
 
 Sensor ID mapping:
 - 77 -> BMP390
@@ -79,7 +79,7 @@ Records are comma-separated with '|' as row separator.
 Example logical shape:
 `id,val1,val2,|,id,val1,val2,val3`
 
-Tokenizer writes numeric values into a fixed 5x5 float matrix.
+Tokenizer writes numeric values into a fixed 6x5 float matrix.
 
 ## Compile Flags
 - `SOCKET_AES` — enabled by default (`#define SOCKET_AES`); enables AES decryption of socket payload.
@@ -95,7 +95,3 @@ Tokenizer writes numeric values into a fixed 5x5 float matrix.
 Called from refresh/update flow in src/main.cpp during widget refresh cycles.
 Works together with FreeRTOS queue tasks in src/freeRtos.cpp.
 
-Specific usage in `main.cpp`:
-- `refreshWidgets()` / `getSensorData()` call `socketClient(ip, "ALL", 1)` for normal polling
-- terminal command handler calls `socketClient(ip, "ALL", 0)` for ad-hoc user reads
-- blink-test path uses `socketClient(ip, "BLK")` overload and frees returned buffer

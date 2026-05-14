@@ -9,8 +9,6 @@
  * @details
  * - The `socketClient` function handles communication with the server, including sending
  *   commands, receiving data, and validating the received data using CRC.
- * - The `processSensorData` function processes the received sensor data and updates widgets
- *   and sends HTTP requests based on the sensor type.
  * - The `printTokens` function is a debug utility for printing parsed sensor data.
  * - The file also includes an overloaded version of `socketClient` that returns a dynamically
  *   allocated buffer containing the server's response.
@@ -54,11 +52,9 @@ extern int failSocket, passSocket, recoveredSocket, retry;
 extern byte enc_iv_copy[N_BLOCK], aes_iv[N_BLOCK];
 extern char cleartext[INPUT_BUFFER_LIMIT];
 void taskSQL_HTTP(void *pvParameters);
-void setupHTTP_request(String sensorName, float tokens[]);
 int socketRecovery(char *IP, char *cmd2Send);
 int socketClient(char *espServer, char *command, bool updateErrorQueue);
 void upDateWidget(char *sensor, float tokens[]);
-void processSensorData(float tokens[DEVICES][5]);
 void printTokens(float tokens[DEVICES][5]);
 void decrypt_to_cleartext(char *msg, uint16_t msgLen, byte iv[], char *cleartext);
 
@@ -192,51 +188,7 @@ int socketClient(char *espServer, char *command, bool updateErrorQueue)
 
     return 0;
 }
-/**
- * @brief Processes sensor data and performs actions based on sensor type.
- *
- * This function takes a 2D array of sensor data tokens and processes each sensor's data.
- * It identifies the sensor type using a predefined mapping, then performs actions such as
- * setting up an HTTP request to update mySQL. If an unknown sensor code is encountered,
- * the function continues.
- *
- * @param tokens A 2D array of sensor data, where each row represents a sensor's data.
- *               The first element in each row is the sensor code (as a float).
- * @note A previous bug related to "Stack canary" exceptions was resolved by increasing the stack size.
- */
-void processSensorData(float tokens[DEVICES][5])
-{
-    const std::map<int, const char *> sensorMap =
-        {
-            {77, "BMP390"},
-            {76, "BME280"},
-            {58, "BMP280"},
-            {44, "SHT35"},
-            {48, "ADS1115"},
-            {28, "DS1"}};
 
-    char sensor[10];
-
-    for (int i = 0; i < 5; i++)
-    {
-        int sensorCode = static_cast<int>(tokens[i][0]);
-        if (!sensorCode)
-            continue;
-        auto it = sensorMap.find(sensorCode);
-        if (it != sensorMap.end())
-        {
-            strcpy(sensor, it->second);
-            passSocket++;
-            setupHTTP_request(sensor, tokens[i]);
-            upDateWidget(sensor, tokens[i]);
-        }
-        else
-        {
-            Serial.printf("unknow code %d\n", sensorCode);
-            continue; // Unknown sensor code
-        }
-    }
-}
 /**
  * @brief Prints the contents of a 2D array of tokens to the Serial monitor.
  *
@@ -279,7 +231,7 @@ void printTokens(float tokens[DEVICES][5])
  * @details
  * - The function attempts to connect to the specified server using the WiFiClient class.
  * - If the connection is successful, it sends the provided command to the server.
- * - The function waits for a response from the server, with a timeout of 35 seconds.
+ * - The function waits for a response from the server, with a timeout of 10 seconds.
  * - If no response is received within the timeout period, the connection is closed, and NULL is returned.
  * - The response from the server is read into a dynamically allocated buffer.
  * - If memory allocation fails, the ESP device is restarted.
@@ -309,11 +261,21 @@ char *socketClient(char *espServer, char *command)
     }
     if (client.connected())
         client.println(command); // send cmd to server (esp8266) ie "BLK"/"RST"
-
+        
+    char *mem = (char *)malloc(80);
+    if (mem == NULL)
+    {
+        //  did you call free()?
+        // Blynk.logEvent("mem_alloc_failed");
+        // queStat();
+        ESP.restart();
+    }
     if (strstr(command, (char *)"RST"))
     {
+       
+        sprintf(mem, "Server %s Was Rebooted", espServer);
         client.stop();
-        return (char *)"server was rebooted";
+        return mem;
     }
     unsigned long timeout = millis();
     // wait for data to be available
@@ -327,14 +289,7 @@ char *socketClient(char *espServer, char *command)
             return NULL;
         }
     }
-    char *mem = (char *)malloc(80);
-    if (mem == NULL)
-    {
-        //  did you call free()?
-        // Blynk.logEvent("mem_alloc_failed");
-        // queStat();
-        ESP.restart();
-    }
+
     // read sensor data from sever
     while (client.available())
     { // read data from server (esp8266)

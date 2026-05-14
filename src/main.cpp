@@ -95,7 +95,7 @@ void getBootTime(char *lastBook, char *strReason);
 int getSensorData(const String &sensorsConnected);
 void getSensorData4User(String input);
 int socketRecovery(char *IP, char *cmd2Send);
-void processSensorData(float tokens[DEVICES][5]);
+void processSensorData(float tokens[DEVICES][5], String ip);
 String performHttpGet(const char *url);
 int decryptWifiCredentials(char *auth, char *ssid, char *psw);
 int socketClient(char *espServer, char *command, bool updateErorrQue);
@@ -111,6 +111,7 @@ String getIP(String sensorName);
 void printTokens(float tokens[DEVICES][5]);
 void ping();
 String ip2room(String ip);
+void setupHTTP_request(String sensorName, String location, float tokens[]);
 
 std::map<std::string, std::string> ipMap;
 std::map<std::string, std::string> locMap;
@@ -552,7 +553,7 @@ int getSensorData(const String &sensorsConnected)
       failSocket++;
     }
     // tokens[][] is populated by socketClient and consumed by processSensorData.
-    processSensorData(tokens);
+    processSensorData(tokens, ip.c_str());
     sensorConnected = sensorConnected.substring(index2 + 1); // Move to the next device in string
 
   } // end for
@@ -880,8 +881,9 @@ void ping()
     alive = dead = 0;
     start = millis();
     String room = ip2room(pair.second.c_str());
+    int length = pair.first.length();
 
-    sprintf(line, "%s %s: %s\n", pair.first.substr(0, 3).c_str(), pair.second.c_str(), room.c_str());
+    sprintf(line, "%s %s: %s\n", pair.first.substr(0, length - 2).c_str(), pair.second.c_str(), room.c_str());
     for (int j = 0; j < 4; j++)
     {
       if (isServerConnected(pair.second.c_str()))
@@ -909,6 +911,16 @@ void ping()
   Blynk.virtualWrite(V49, line);
 }
 
+/**
+ * @brief Resolves a sensor IP address to its configured room/location label.
+ *
+ * Looks up the provided IP in `locMap`, which is rebuilt in `getSensorData()`
+ * from the backend roster payload. Returns an empty string if the IP is not
+ * currently known.
+ *
+ * @param ip Sensor node IPv4 address (e.g. "192.168.1.41").
+ * @return String Room/location text associated with the IP, or "" if missing.
+ */
 String ip2room(String ip)
 {
   // Map sensor IP to room label for user-friendly terminal output.
@@ -921,10 +933,20 @@ String ip2room(String ip)
   return location;
 }
 
+/**
+ * @brief Sends a command to one or more sensor nodes selected by Blynk button index.
+ *
+ * The function maps the incoming widget index to a sensor family label
+ * (`ADC`, `BME`, `SHT`, `BMP`, `DS1`, `BMX`, `ALL`), scans `ipMap`, and sends
+ * the provided command to each matching node via `socketClient()`.
+ *
+ * @param cmd Null-terminated command string to send (typically "BLK" or "RST").
+ * @param index Zero-based Blynk segmented-button index.
+ */
 void blynkWrite(char *cmd, int index)
 {
   bool found = false;
-  // Labels must match the Blynk widget button order for virtual pin BLINK_TST (V9):
+  // Labels must match the Blynk widget button order for virtual pin BLINK_TST (V9/V10):
   // the widget is set at BLYNK_CONNECTED Blynk.setProperty(V9,................
   // index 0=ADC, 1=BME, 2=SHT, 3=BMP, 4=DS1, 5=BMX 6=ALL
   String sensor[] = {"ADC", "BME", "SHT", "BMP", "DS1", "BMX", "ALL"};
@@ -935,18 +957,65 @@ void blynkWrite(char *cmd, int index)
   for (const auto &pair : ipMap)
   {
     int length = pair.first.length();
-    // ipMap keys are "<BMX_BME>_<n>"; compare only the first 3 chars against the selection
+    // ipMap keys are "<SENSOR_SENSOR>_<n>"; strip "_<n>" before matching against selected label.
     String firstPair = pair.first.substr(0, length - 2).c_str();
     if (sensor[index] == "ALL" || strstr(firstPair.c_str(), sensorIndex.c_str()))
     {
       found = true;
       str = socketClient((char *)pair.second.c_str(), cmd); // returns heap-allocated C-string
-      Serial.printf("%s_tst %s \n", cmd, str);
-      if (strstr(cmd, (char *)"BLK"))
-        free(str); // release heap buffer returned by socketClient
-      lwdtFeed();  // reset watchdog; BLK round-trip can exceed LWD_TIMEOUT on slow nodes
+      Serial.printf("%s %s \n", cmd, str);
+      lastMsg = str;
+      Blynk.virtualWrite(V47, str);
+      free(str);  // release heap buffer returned by socketClient
+      lwdtFeed(); // reset watchdog; BLK round-trip can exceed LWD_TIMEOUT on slow nodes
     }
   }
   if (!found)
     Serial.printf("sensor %s not in ip map\n", sensorIndex.c_str());
+}
+/**
+ * @brief Processes sensor data and performs actions based on sensor type.
+ *
+ * This function takes a 2D array of sensor data tokens and processes each sensor's data.
+ * It identifies the sensor type using a predefined mapping, then performs actions such as
+ * setting up an HTTP request to update mySQL. If an unknown sensor code is encountered,
+ * the function continues.
+ *
+ * @param tokens A 2D array of sensor data, where each row represents a sensor's data.
+ *               The first element in each row is the sensor code (as a float).
+ * @note A previous bug related to "Stack canary" exceptions was resolved by increasing the stack size.
+ */
+void processSensorData(float tokens[DEVICES][5], String ip)
+{
+  const std::map<int, const char *> sensorMap =
+      {
+          {77, "BMP390"},
+          {76, "BME280"},
+          {58, "BMP280"},
+          {44, "SHT35"},
+          {48, "ADS1115"},
+          {28, "DS1"}};
+
+  char sensor[10];
+  String location = ip2room(ip.c_str());
+
+  for (int i = 0; i < 5; i++)
+  {
+    int sensorCode = static_cast<int>(tokens[i][0]);
+    if (!sensorCode)
+      continue;
+    auto it = sensorMap.find(sensorCode);
+    if (it != sensorMap.end())
+    {
+      strcpy(sensor, it->second);
+      passSocket++;
+      setupHTTP_request(sensor, location, tokens[i]);
+      upDateWidget(sensor, tokens[i]);
+    }
+    else
+    {
+      Serial.printf("unknow code %d\n", sensorCode);
+      continue; // Unknown sensor code
+    }
+  }
 }

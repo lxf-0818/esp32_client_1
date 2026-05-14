@@ -36,13 +36,14 @@ Supported terminal commands:
 - `reboot` — restart ESP32
 - `ping` — TCP ping all registered sensors (4 attempts each) + HTTP ping
 - `up` — print uptime (days/hours/minutes/seconds)
+- `reset` — reset fail/recovered/retry counters
 - `adc` — fetch ADS1115 voltage reading
 - `bme` — fetch BME280 temperature reading
 - `bmx` — fetch BMP390 temperature reading
 - `bmp` — fetch BMP280 temperature reading
 - `sht` — fetch SHT35 temperature/humidity reading
 - `ds1` — fetch DS18B20 temperature reading
-- `refr` — force widget refresh and reset fail/recover/retry counters
+- `refr` — clear `lastSensorsConnected` and force an immediate `refreshWidgets()` cycle
 
 Unrecognised commands return an error message to the terminal.
 
@@ -50,8 +51,10 @@ Unrecognised commands return an error message to the terminal.
 - `performHttpGet(url)` — HTTP GET wrapper, returns response string or empty on failure
 - `getSensorData(sensorsConnected)` — parses `"count|row,sensor:ip|..."` string into `ipMap`, socket-polls each device
 - `getSensorData4User(input)` — resolves matching sensor IPs, polls each node with `ALL`, filters token rows by sensor tag, writes formatted values to terminal pin V49
+- `processSensorData(tokens, ip)` — converts sensor codes into device names, derives location from the source IP, sends HTTP updates, and refreshes widgets
 - `upDateWidget(sensor, tokens[])` — writes sensor values to Blynk virtual pins; supports BME280, BMP390, SHT35, ADS1115 (DS18B20 and BMP280 are not handled — no matching branch exists)
 - `getIP(sensorName)` — case-insensitive substring lookup that returns all matching IPs as a `|`-delimited string with trailing `|` (e.g. `"bme"` matches `"BME280"`)
+- `ip2room(ip)` — maps a sensor IP to a room/location label for terminal output
 - `isServerConnected(serverIP, port)` — TCP connect/disconnect reachability check (default port 8888)
 - `printUptime()` — formats and writes uptime to Blynk terminal (V49)
 - `checkSSD()` — I2C probe for SSD1306 OLED at `0x3C`

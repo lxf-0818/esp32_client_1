@@ -1,6 +1,6 @@
 # ESP32 Client Documentation
 
-Last updated: 2026-04-30
+Last updated: 2026-05-14
 
 ## Overview
 This project is an ESP32-based IoT client that:
@@ -69,13 +69,14 @@ Important handlers in src/main.cpp:
 - list: show valid commands
 - reboot: save queue status and reboot
 - up: print uptime
+- reset: reset fail/recovered/retry counters
 - adc: query ADS1115 voltage reading
 - bme: query BME280 temperature/humidity reading
 - bmx: query BMP390 temperature reading
 - bmp: query BMP280 temperature reading
 - sht: query SHT35 temperature/humidity reading
 - ds1: query DS18B20 temperature reading
-- refr: force widget refresh and reset counters
+- refr: clear last sensor snapshot and force immediate refresh
 - ping: test TCP and HTTP reachability metrics
 
 ## Network Endpoints
@@ -92,7 +93,7 @@ Note: data/api.txt exists in this project and is loaded by FreeRTOS HTTP queue l
 
 ## Data Model Summary
 - ipMap (std::map<string, string>): sensorName -> ipAddress.
-- tokens[5][5]: parsed sensor value matrix from socket payloads.
+- tokens[6][5]: parsed sensor value matrix from socket payloads.
 - passSocket/failSocket/recoveredSocket/retry: communication health counters.
 - lastSensorsConnected: previous ip list to avoid unnecessary Blynk terminal spam.
 
