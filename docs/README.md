@@ -1,6 +1,6 @@
 # ESP32 Client Documentation
 
-Last updated: 2026-05-14
+Last updated: 2026-05-15
 
 ## Overview
 This project is an ESP32-based IoT client that:
@@ -63,21 +63,19 @@ Important handlers in src/main.cpp:
 - BLYNK_CONNECTED(): Writes boot metadata, resets counters, loads initial stats.
 - BLYNK_WRITE(V49): Terminal command parser.
 - BLYNK_WRITE(V18): Removes stale IP data on server side.
-- BLYNK_WRITE(BLINK_TST): Sends BLK test command to all known nodes.
+- BLYNK_WRITE(BLINK_TST): Sends BLK test command to selected sensor group (or ALL) via widget index.
+- BLYNK_WRITE(V10): Sends RST command to selected sensor group (or ALL) via widget index.
 
 ### Terminal Commands on V49
 - list: show valid commands
 - reboot: save queue status and reboot
+- ping: test TCP and HTTP reachability metrics
 - up: print uptime
 - reset: reset fail/recovered/retry counters
-- adc: query ADS1115 voltage reading
-- bme: query BME280 temperature/humidity reading
-- bmx: query BMP390 temperature reading
-- bmp: query BMP280 temperature reading
-- sht: query SHT35 temperature/humidity reading
-- ds1: query DS18B20 temperature reading
 - refr: clear last sensor snapshot and force immediate refresh
-- ping: test TCP and HTTP reachability metrics
+- all: iterate all ipMap entries and print one live reading per node
+
+Command parsing uses startsWith(...), so valid command prefixes are accepted.
 
 ## Network Endpoints
 The client currently uses fixed local endpoints in src/main.cpp:
@@ -112,7 +110,7 @@ LittleFS data files expected in data/:
 - ssid_pass_aes.txt
 
 Upload filesystem data before first boot if values are missing.
-At startup, login.cpp requires blynkAuth.txt, aes.txt, iv.txt, and ssid_pass_aes.txt for auth and Wi-Fi decryption.
+At startup, decryptWifiCredentials() (implemented in src/cryptography.cpp) requires blynkAuth.txt, aes.txt, iv.txt, and ssid_pass_aes.txt for auth and Wi-Fi decryption.
 
 ## Security Notes
 - Do not commit real tokens, keys, or passwords.

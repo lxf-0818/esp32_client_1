@@ -93,7 +93,7 @@ void refreshWidgets();
 void resetStats();
 void getBootTime(char *lastBook, char *strReason);
 int getSensorData(const String &sensorsConnected);
-void getSensorData4User(String input);
+void getSensorData4User(String input, String ip);
 int socketRecovery(char *IP, char *cmd2Send);
 void processSensorData(float tokens[DEVICES][5], String ip);
 String performHttpGet(const char *url);
@@ -564,7 +564,7 @@ int getSensorData(const String &sensorsConnected)
  *
  * This function is triggered whenever a string is sent to the virtual pin V49
  * (configured as a terminal widget in the Blynk app). It reads the input string
- * and logs it to the serial monitor for further processing.
+ * and dispatches a matching command handler.
  *
  * Supported commands:
  * - "list":  prints all valid commands to V49.
@@ -572,22 +572,29 @@ int getSensorData(const String &sensorsConnected)
  * - "up":    writes formatted uptime (days/hours/minutes/seconds) to V49.
  * - "ping":  TCP-pings every entry in `ipMap` 4 times and HTTP-pings `ipList` 4 times;
  *            reports pass/dead counts and elapsed time to V49.
- * - "adc":   fetches ADS1115 voltage reading for matching nodes via `getSensorData4User()`.
- * - "bme":   fetches BME280 temperature reading for matching nodes via `getSensorData4User()`.
- * - "bmx":   fetches BMP390 temperature reading for matching nodes via `getSensorData4User()`.
- * - "bmp":   fetches BMP280 temperature reading for matching nodes via `getSensorData4User()`.
- * - "sht":   fetches SHT35 temperature/humidity reading for matching nodes via `getSensorData4User()`.
- * - "ds1":   fetches DS18B20 temperature reading for matching nodes via `getSensorData4User()`.
- * - "refr":  clears `lastSensorsConnected`, calls `refreshWidgets()`
- *   "reset": resets  fail/recovered/retry counters.
+ * - "reset": resets fail/recovered/retry counters.
+ * - "refr":  clears `lastSensorsConnected` then calls `refreshWidgets()`.
+ * - "all":   iterates all entries in `ipMap` and prints a live reading for each node
+ *            via `getSensorData4User()`.
+ *
+ * Command matching uses `startsWith`, so command prefixes are accepted when
+ * unambiguous.
+ *
  * Unrecognised input writes an error message to V49.
  *
  * @param param The parameter object containing the string sent to the terminal widget.
  */
 BLYNK_WRITE(V49)
 {
-  String validCommand[] = {"list", "reboot", "ping", "up", "reset", "refr",
-                           "adc", "bme", "bmx", "ds1", "sht", "bmp"};
+  String validCommand[] = {
+      "list",
+      "reboot",
+      "ping",
+      "up",
+      "reset",
+      "refr",
+      "all",
+  };
   char tmp[512];
   int indexSelected, numberOfElements;
   bool found = false;
@@ -619,6 +626,7 @@ BLYNK_WRITE(V49)
   switch (indexSelected)
   {
   case 0:
+    numberOfElements = sizeof(validCommand) / sizeof(validCommand[0]);
     for (int i = 0; i < numberOfElements; i++)
     {
       Serial.println(validCommand[i]);
@@ -644,9 +652,15 @@ BLYNK_WRITE(V49)
     lastSensorsConnected = "";
     refreshWidgets();
     break;
-  default:
-    getSensorData4User(input.substring(0, 3));
-  }
+  case 6:
+    for (const auto &pair : ipMap)
+    {
+      input = pair.first.c_str();
+      input.toLowerCase();
+      getSensorData4User(input.substring(0, 3), pair.second.c_str());
+    }
+    break;
+   }
 }
 void printUptime()
 {
@@ -768,22 +782,8 @@ String getIP(String sensorName)
   }
   return returnIPstring;
 }
-/**
- * @brief Fetches and displays sensor data for a user-requested sensor type via the Blynk terminal (V49).
- *
- * Looks up all IP addresses associated with the given sensor prefix (first 3 characters of @p input,
- * e.g. "bme", "adc", "ds1") using `getIP()`. For each IP, issues a socket "ALL" command to retrieve
- * the current readings, then matches the response tokens against a built-in tag map that maps sensor
- * prefixes to numeric device IDs. Matching readings are formatted and written to virtual pin V49.
- *
- * @param input The user command string whose first 3 characters identify the sensor type.
- *              Supported prefixes: "bmx", "bme", "bmp", "sht", "adc", "ds1".
- *
- * @note For "adc" sensors the raw voltage is multiplied by the voltage-divider ratio stored
- *       in `tokens[i][3]` to produce the actual 12 V reading.
- * @note If no IP is found for the sensor prefix, an error message is written to V49.
- */
-void getSensorData4User(String input)
+
+void getSensorData4User(String input, String ip)
 {
   const std::map<String, int> tagMap =
       {
@@ -802,64 +802,46 @@ void getSensorData4User(String input)
     label = "Volt";
     postFix = "V";
   }
-  String ip = getIP(input.c_str());
-  if (ip.isEmpty())
-  {
-    sprintf(tmp, "no ip@ for sensor %s \n", input.c_str());
-    Blynk.virtualWrite(V49, tmp);
-  }
+
+  int rc = 0;
+  String room = ip2room(ip);
+  // Refresh the shared tokens buffer for this node before selecting a device row.
+  rc = socketClient((char *)ip.c_str(), (char *)"ALL", 0);
+  if (rc)
+    Serial.println("socketClient() failed");
   else
   {
-    int rc = 0;
-    // do until all ip's are processed , the same sensor can be on multiple esp8266
-    while (1)
+    // Translate terminal command key into sensor code used in tokens[i][0].
+    auto it = tagMap.find(input);
+    if (it != tagMap.end())
+      device = it->second;
+    else
     {
-      int index = ip.indexOf("|");
-      if (index >= 0)
+      for (const auto &pair : tagMap)
       {
-        String parseIP = ip.substring(0, index);
-        String room = ip2room(parseIP);
-
-        rc = socketClient((char *)parseIP.c_str(), (char *)"ALL", 0);
-        if (rc)
-          Serial.println("socketClient() failed");
-        else
-        {
-          auto it = tagMap.find(input);
-          if (it != tagMap.end())
-            device = it->second;
-          else
-          {
-            for (const auto &pair : tagMap)
-            {
-              Serial.printf("1st %s 2nd %d\n", pair.first.c_str(), pair.second);
-            }
-            Serial.printf("device not found .%s.\n", input.c_str());
-            return;
-          }
-
-          // loop all device(s) data
-          for (int i = 0; i < 5; i++)
-          {
-            if (device == tokens[i][0])
-            {
-              if (!device)
-                break;
-              float ftmp = tokens[i][1];
-              // value is scaled by divider ratio (`tokens[i][3]`) before display
-              // measuring 12v need voltage div [0][3] contains divider ratio
-              if (input.startsWith("adc"))
-                ftmp *= tokens[i][3];
-
-              sprintf(tmp, "%s %f %s %s \n", label.c_str(), ftmp, postFix.c_str(), room.c_str());
-              Blynk.virtualWrite(V49, tmp);
-            }
-          }
-        }
-        ip = ip.substring(index + 1); // go to the char in string (pass the "|")
+        Serial.printf("1st %s 2nd %d\n", pair.first.c_str(), pair.second);
       }
-      else
-        break;
+      Serial.printf("device not found .%s.\n", input.c_str());
+      return;
+    }
+
+    // loop all device(s) data
+    for (int i = 0; i < 5; i++)
+    {
+      if (device == tokens[i][0])
+      {
+        if (!device)
+          break;
+        float ftmp = tokens[i][1];
+        // value is scaled by divider ratio (`tokens[i][3]`) before display
+        // measuring 12v need voltage div [0][3] contains divider ratio
+        if (input.startsWith("adc"))
+          ftmp *= tokens[i][3];
+
+        // Output one formatted line to the Blynk terminal widget.
+        sprintf(tmp, "%s %f %s %s \n", label.c_str(), ftmp, postFix.c_str(), room.c_str());
+        Blynk.virtualWrite(V49, tmp);
+      }
     }
   }
 }
@@ -896,6 +878,7 @@ void ping()
     Blynk.virtualWrite(V49, line);
   }
   // ping http
+  alive = dead = 0;
   sprintf(line, "%s", ipList);
   start = millis();
   for (int j = 0; j < 4; j++)
@@ -964,7 +947,6 @@ void blynkWrite(char *cmd, int index)
       found = true;
       str = socketClient((char *)pair.second.c_str(), cmd); // returns heap-allocated C-string
       Serial.printf("%s %s \n", cmd, str);
-      lastMsg = str;
       Blynk.virtualWrite(V47, str);
       free(str);  // release heap buffer returned by socketClient
       lwdtFeed(); // reset watchdog; BLK round-trip can exceed LWD_TIMEOUT on slow nodes
