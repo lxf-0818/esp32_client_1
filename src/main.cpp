@@ -188,6 +188,13 @@ void loop()
   lwdtFeed();
   Blynk.run();
   timer.run();
+#define TEST_LWD_
+#ifdef TEST_LWD
+  while (1)
+  {
+    delay(2);
+  };
+#endif  
 }
 
 /**
@@ -540,7 +547,7 @@ int getSensorData(const String &sensorsConnected)
 
     // Parse one device tuple: "sensor_or_group:ip,location|".
     int index = sensorConnected.indexOf(":");
-    String sensorName = sensorConnected.substring(0, index) + "_"; //add end of string toeken 
+    String sensorName = sensorConnected.substring(0, index) + "_"; // add end of string token
 
     int index1 = sensorConnected.indexOf(",");
     ip = sensorConnected.substring(index + 1, index1);
@@ -555,7 +562,7 @@ int getSensorData(const String &sensorsConnected)
       if (j > 0)
       {
         String name = sensorName.substring(0, j);
-        name = name + "_" + z++;
+        name = name + "_" + z++; // make unique key
         ipMap[name.c_str()] = ip.c_str();
         sensorName = sensorName.substring(j + 1);
       }
@@ -677,7 +684,6 @@ BLYNK_WRITE(V49)
     {
       String input1 = pair.first.c_str();
       input1.toLowerCase();
-      Serial.println(input1);
       getSensorData4User(input1.substring(0, 3), pair.second.c_str());
     }
     break;
@@ -847,7 +853,6 @@ void getSensorData4User(String input, String ip)
     {
       if (device == tokens[i][0])
       {
-
         deviceFound = true;
         if (!device)
           break;
@@ -969,6 +974,7 @@ void blynkWrite(char *cmd, int index)
       found = true;
       str = socketClient((char *)pair.second.c_str(), cmd); // returns heap-allocated C-string
       Serial.printf("%s %s \n", cmd, str);
+      lastMsg = str;
       Blynk.virtualWrite(V47, str);
       free(str);  // release heap buffer returned by socketClient
       lwdtFeed(); // reset watchdog; BLK round-trip can exceed LWD_TIMEOUT on slow nodes

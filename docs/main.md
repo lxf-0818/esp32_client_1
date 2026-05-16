@@ -19,9 +19,9 @@ Primary ESP32 client runtime for Blynk integration, server polling, sensor fetch
 ## Widget Refresh Path
 `refreshWidgets()`:
 1. GET sensor list from `ip.php` via `performHttpGet()`
-2. parse with `getSensorData()` into `ipMap` and `locMap` (entries are parsed from `sensor:ip,location|...`) 
+2. parse with `getSensorData()` into `ipMap` sensor:ip and `locMap` location:ip
 3. socket poll each server with `ALL`
-4. update Blynk terminal only when sensor list changes (`V46` start marker + lines to `V49`)
+4. update Blynk terminal only when sensor list changes 
 5. update Blynk counters (V7, V20, V19, V34) and last message (V47)
 6. on error, writes status to V39 and returns early
 

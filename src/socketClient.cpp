@@ -272,9 +272,8 @@ char *socketClient(char *espServer, char *command)
     }
     if (strstr(command, (char *)"RST"))
     {
-       
-        sprintf(mem, "Server %s Was Rebooted", espServer);
         client.stop();
+        sprintf(mem, "Server %s Was Rebooted", espServer);
         return mem;
     }
     unsigned long timeout = millis();
@@ -285,22 +284,17 @@ char *socketClient(char *espServer, char *command)
         {
             Serial.println(">>> Client Timeout !");
             client.stop();
-            delay(600);
             return NULL;
         }
     }
-
     // read sensor data from sever
     while (client.available())
     { // read data from server (esp8266)
         char ch = static_cast<char>(client.read());
         mem[j++] = ch;
     }
-
     // Close the connection
     client.stop();
-    // Serial.println("closing connection");
-
     mem[j--] = '\0';
     return mem;
 }
