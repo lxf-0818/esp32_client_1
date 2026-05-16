@@ -817,10 +817,6 @@ void getSensorData4User(String input, String ip)
       device = it->second;
     else
     {
-      for (const auto &pair : tagMap)
-      {
-        Serial.printf("1st %s 2nd %d\n", pair.first.c_str(), pair.second);
-      }
       Serial.printf("device not found .%s.\n", input.c_str());
       return;
     }
