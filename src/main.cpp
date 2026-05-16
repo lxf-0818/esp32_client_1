@@ -115,6 +115,7 @@ void setupHTTP_request(String sensorName, String location, float tokens[]);
 
 std::map<std::string, std::string> ipMap;
 std::map<std::string, std::string> locMap;
+String ip, location;
 const uint16_t port = 8888;
 String sensorName = "NO DEVICE";
 int failSocket, passSocket, recoveredSocket, retry, timerID1, passPost;
@@ -495,56 +496,75 @@ String performHttpGet(const char *url)
 }
 
 /**
- * @brief Parses server sensor roster and polls each listed node for live data.
+ * @brief Parses the backend roster payload and refreshes live data from all nodes.
  *
- * Expected input format:
- * "<rows>|<SENSOR>:<IP>,<LOCATION>|<SENSOR>:<IP>,<LOCATION>|...|"
+ * Payload contract expected from ip.php:
+ * "<rows>|<SENSOR_OR_GROUP>:<IP>,<LOCATION>|...|"
  *
- * For each parsed entry, this function:
- * - Updates ipMap with a unique sensor key (<SENSOR>_<index>) to avoid collisions.
- * - Updates locMap with IP-to-location mapping for terminal/user display.
- * - Issues an "ALL" socket request to collect the latest sensor payload.
- * - Queues socket recovery on failures and increments failSocket.
+ * Example:
+ * "2|BME_BMP:192.168.1.4,Laundry|ADC:192.168.1.7,Garage|"
+ *
+ * Parsing behavior:
+ * - `<rows>` controls loop count (number of tuples expected in the payload body).
+ * - `<SENSOR_OR_GROUP>` may contain multiple tags joined by `_` (for example `BME_BMP`).
+ * - Grouped tags are split into individual map keys in the form `<SENSOR>_<index>`.
+ *
+ * Refresh behavior per tuple:
+ * - Rebuilds `ipMap` (sensor key -> IP) and `locMap` (IP -> location) from scratch.
+ * - Polls each parsed IP using socket command `ALL`.
+ * - On socket failure, queues the request in recovery queue and increments `failSocket`.
+ * - Always forwards parsed token data to `processSensorData()`.
  *
  * @param sensorsConnected Delimited roster payload returned by ip.php.
- * @return int Number of rows parsed from the payload header.
+ * @return int Row count parsed from the payload header.
  */
 int getSensorData(const String &sensorsConnected)
 {
+  int z = 0;
   // Header before first '|' is row count sent by the backend.
   String rows = sensorsConnected.substring(0, sensorsConnected.indexOf("|"));
   int numberOfRows = atoi(rows.c_str());
 
-  // Point to payload
+  // Slice off the payload body: "sensor:ip,location|sensor:ip,location|..."
   String sensorConnected = sensorsConnected.substring(sensorsConnected.indexOf("|") + 1,
                                                       sensorsConnected.lastIndexOf("|"));
 
   // Rebuild maps each refresh so stale/disconnected devices are removed.
-
   ipMap.clear();
   locMap.clear();
 
   for (int i = 0; i < numberOfRows; i++)
   {
+    // Example tuple stream:
     // BME:192.168.1.4,Laundry Room|BMP:192.168.1.3,Master Bedroom|
 
-    // Parse one device tuple: "sensor:ip,location|".
+    // Parse one device tuple: "sensor_or_group:ip,location|".
     int index = sensorConnected.indexOf(":");
-    String sensorName = sensorConnected.substring(0, index);
+    String sensorName = sensorConnected.substring(0, index) + "_"; //add end of string toeken 
 
     int index1 = sensorConnected.indexOf(",");
-    String ip = sensorConnected.substring(index + 1, index1);
+    ip = sensorConnected.substring(index + 1, index1);
 
     int index2 = sensorConnected.indexOf("|");
-    String location = sensorConnected.substring(index1 + 1, index2);
+    location = sensorConnected.substring(index1 + 1, index2);
 
-    // Suffix index keeps map keys unique for duplicate sensor types.
-    sensorName = sensorName + "_" + i;
-    // update map with IP address , used downstream for connecting to server from terminal(V49) commands
-    ipMap[sensorName.c_str()] = ip.c_str();
+    // Expand grouped names like "BME_BMP" into unique keys: BME_<z>, BMP_<z+1>.
+    while (1)
+    {
+      int j = sensorName.indexOf("_");
+      if (j > 0)
+      {
+        String name = sensorName.substring(0, j);
+        name = name + "_" + z++;
+        ipMap[name.c_str()] = ip.c_str();
+        sensorName = sensorName.substring(j + 1);
+      }
+      else
+        break;
+    }
     locMap[ip.c_str()] = location.c_str();
 
-    // NOTE: socketClient is over-loaded function by removing the last parm causes compile time errors Wwll fixed 1 day!
+    // NOTE: socketClient is overloaded; the 3rd parameter selects the client-call variant.
     int rc = socketClient((char *)ip.c_str(), (char *)"ALL", 1); // read sensor data from connected device
     if (rc)
     {
@@ -655,12 +675,13 @@ BLYNK_WRITE(V49)
   case 6:
     for (const auto &pair : ipMap)
     {
-      input = pair.first.c_str();
-      input.toLowerCase();
-      getSensorData4User(input.substring(0, 3), pair.second.c_str());
+      String input1 = pair.first.c_str();
+      input1.toLowerCase();
+      Serial.println(input1);
+      getSensorData4User(input1.substring(0, 3), pair.second.c_str());
     }
     break;
-   }
+  }
 }
 void printUptime()
 {
@@ -785,6 +806,7 @@ String getIP(String sensorName)
 
 void getSensorData4User(String input, String ip)
 {
+  // Serial.printf("4user input %s\n", input.c_str());
   const std::map<String, int> tagMap =
       {
           {"bmx", 77},
@@ -804,8 +826,6 @@ void getSensorData4User(String input, String ip)
   }
 
   int rc = 0;
-  String room = ip2room(ip);
-  // Refresh the shared tokens buffer for this node before selecting a device row.
   rc = socketClient((char *)ip.c_str(), (char *)"ALL", 0);
   if (rc)
     Serial.println("socketClient() failed");
@@ -822,10 +842,13 @@ void getSensorData4User(String input, String ip)
     }
 
     // loop all device(s) data
+    bool deviceFound = false;
     for (int i = 0; i < 5; i++)
     {
       if (device == tokens[i][0])
       {
+
+        deviceFound = true;
         if (!device)
           break;
         float ftmp = tokens[i][1];
@@ -834,11 +857,14 @@ void getSensorData4User(String input, String ip)
         if (input.startsWith("adc"))
           ftmp *= tokens[i][3];
 
+        String room = ip2room(ip);
         // Output one formatted line to the Blynk terminal widget.
         sprintf(tmp, "%s %f %s %s \n", label.c_str(), ftmp, postFix.c_str(), room.c_str());
         Blynk.virtualWrite(V49, tmp);
       }
     }
+    if (!deviceFound)
+      Serial.printf("tag not found in tokens %d\n", device);
   }
 }
 void ping()

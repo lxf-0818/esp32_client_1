@@ -66,6 +66,21 @@ Unrecognised commands return an error message to the terminal.
 - `generateInterrupt()` — manually invokes watchdog ISR for testing
 - `ping()` — TCP-pings every entry in `ipMap` 4 times and HTTP-pings `ipList` 4 times; writes pass/dead counts and elapsed time to V49
 
+## getSensorData Flow
+1. Read payload header `<rows>` from `"<rows>|..."`.
+2. Extract the tuple stream body: `"sensor_or_group:ip,location|..."`.
+3. Clear and rebuild runtime maps for a clean refresh cycle:
+  - `ipMap`: `<SENSOR>_<n>` -> IP
+  - `locMap`: IP -> location
+4. For each tuple, split grouped sensor names like `BME_BMP` into separate keys (`BME_<n>`, `BMP_<n+1>`).
+5. Poll each parsed IP with socket command `ALL`.
+6. On poll failure, queue recovery (`socketRecovery`) and increment `failSocket`.
+7. Pass token buffer to `processSensorData()` to update widgets and backend values.
+
+Notes:
+- Maps are rebuilt each cycle to remove stale/disconnected devices.
+- The function returns the row count parsed from the payload header.
+
 ## getSensorData4User Flow
 Used by terminal command `all`.
 
