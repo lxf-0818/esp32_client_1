@@ -812,65 +812,74 @@ String getIP(String sensorName)
 
 void getSensorData4User(String input, String ip)
 {
-  // Serial.printf("4user input %s\n", input.c_str());
-  const std::map<String, int> tagMap =
+  // Map 3-letter sensor prefixes to their device ID codes (used in tokens[i][0]).
+  // Static to avoid recreation on each function call.
+  static const std::map<String, int> tagMap =
       {
-          {"bmx", 77},
-          {"bme", 76},
-          {"bmp", 58},
-          {"sht", 44},
-          {"adc", 48},
-          {"ds1", 28}};
-  int device;
-  String sensor;
+          {"bmx", 77},   // BMP390
+          {"bme", 76},   // BME280
+          {"bmp", 58},   // BMP280
+          {"sht", 44},   // SHT35
+          {"adc", 48},   // ADS1115
+          {"ds1", 28}};  // DS18B20
+  
   char tmp[512];
+  
+  // Set output label and unit: default is temperature in Fahrenheit.
   String label = "Temp", postFix = "F";
   if (input.startsWith("adc"))
   {
+    // ADS1115 (analog-to-digital converter) outputs voltage, not temperature.
     label = "Volt";
     postFix = "V";
   }
 
-  int rc = 0;
-  rc = socketClient((char *)ip.c_str(), (char *)"ALL", 0);
-  if (rc)
-    Serial.println("socketClient() failed");
-  else
+  // Poll the target IP for sensor data using the "ALL" command.
+  // Return code 0 = success; non-zero = socket error.
+  if (socketClient((char *)ip.c_str(), (char *)"ALL", 0))
   {
-    // Translate terminal command key into sensor code used in tokens[i][0].
-    auto it = tagMap.find(input);
-    if (it != tagMap.end())
-      device = it->second;
-    else
-    {
-      Serial.printf("device not found .%s.\n", input.c_str());
-      return;
-    }
-
-    // loop all device(s) data
-    bool deviceFound = false;
-    for (int i = 0; i < 5; i++)
-    {
-      if (device == tokens[i][0])
-      {
-        deviceFound = true;
-        if (!device)
-          break;
-        float ftmp = tokens[i][1];
-        // value is scaled by divider ratio (`tokens[i][3]`) before display
-        // measuring 12v need voltage div [0][3] contains divider ratio
-        if (input.startsWith("adc"))
-          ftmp *= tokens[i][3];
-
-        String room = ip2room(ip);
-        // Output one formatted line to the Blynk terminal widget.
-        sprintf(tmp, "%s %f %s %s \n", label.c_str(), ftmp, postFix.c_str(), room.c_str());
-        Blynk.virtualWrite(V49, tmp);
-      }
-    }
-    if (!deviceFound)
-      Serial.printf("tag not found in tokens %d\n", device);
+    Serial.println("socketClient() failed");
+    return;
   }
+
+  // Look up the user-provided sensor prefix in the tag map.
+  auto it = tagMap.find(input);
+  if (it == tagMap.end())
+  {
+    Serial.printf("device not found .%s.\n", input.c_str());
+    return;  // Not found: abort.
+  }
+  int device = it->second;  // Use the device code from the tag map.
+
+  // Scan the tokens buffer (populated by socketClient) for matching device entries.
+  // tokens[i][0] contains the device code; tokens[i][1] contains the reading value.
+  bool deviceFound = false;
+  for (int i = 0; i < 5; i++)
+  {
+    if (device == tokens[i][0])
+    {
+      deviceFound = true;
+      
+      // Extract the sensor reading from the token buffer.
+      float ftmp = tokens[i][1];
+      
+      // For ADS1115, scale the raw reading by the voltage divider ratio (tokens[i][3]).
+      // This converts raw ADC counts to the actual measured voltage.
+      if (input.startsWith("adc"))
+        ftmp *= tokens[i][3];
+
+      // Resolve the target IP to a human-readable room/location label.
+      String room = ip2room(ip);
+      
+      // Format and send one line to the Blynk terminal (V49).
+      // Format: "<label> <value> <unit> <location>\n"
+      sprintf(tmp, "%s %f %s %s \n", label.c_str(), ftmp, postFix.c_str(), room.c_str());
+      Blynk.virtualWrite(V49, tmp);
+    }
+  }
+  
+  if (!deviceFound)
+    Serial.printf("tag not found in tokens %d\n", device);
 }
 void ping()
 {
