@@ -214,7 +214,7 @@ void initRTOS()
  */
 int socketRecovery(char *IP, char *cmd2Send)
 {
-    socket_t socketQue;
+ //   socket_t socketQue;
     if (QueSocket_Handle == NULL)
         Serial.println("QueSocket_Handle failed");
     else

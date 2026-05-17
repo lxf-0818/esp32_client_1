@@ -114,8 +114,9 @@ String ip2room(String ip);
 void setupHTTP_request(String sensorName, String location, float tokens[]);
 
 std::map<std::string, std::string> ipMap;
+std::map<std::string, std::string> macMap;
 std::map<std::string, std::string> locMap;
-String ip, location;
+String ip, mac, location;
 const uint16_t port = 8888;
 String sensorName = "NO DEVICE";
 int failSocket, passSocket, recoveredSocket, retry, timerID1, passPost;
@@ -134,6 +135,7 @@ unsigned long lwdTimeout = LWD_TIMEOUT;
 const char *getRowCnt = "http://192.168.1.252/rows.php";
 const char *deleteAll = "http://192.168.1.252/deleteALL.php";
 const char *ipList = "http://192.168.1.252/ip.php";
+const char *ipMacList = "http://192.168.1.252/macip.php";
 const char *ipDelete = "http://192.168.1.252/deleteIP.php";
 const char *esp_data = "http://192.168.1.252/esp-data.php";
 
@@ -194,7 +196,7 @@ void loop()
   {
     delay(2);
   };
-#endif  
+#endif
 }
 
 /**
@@ -233,19 +235,21 @@ void refreshWidgets() // called every x seconds by SimpleTimer
 {
   String location;
   char tmp[256];
-  String sensorsConnected = performHttpGet(ipList);
+  String sensorsConnected = performHttpGet(ipMacList);
   if (sensorsConnected.isEmpty())
   {
     sprintf(tmp, "Failed to fetch sensors from mySQL ");
     Blynk.virtualWrite(V39, tmp);
     return;
   }
-  if (!getSensorData(sensorsConnected))
+  int sensorCnt = getSensorData(sensorsConnected);
+  if (!sensorCnt)
   {
     sprintf(tmp, "No sensors connected to network");
     Blynk.virtualWrite(V39, tmp);
     return;
   }
+  Blynk.virtualWrite(V51, sensorCnt);
 
   Blynk.virtualWrite(V7, passSocket);
   Blynk.virtualWrite(V20, failSocket);
@@ -527,7 +531,7 @@ String performHttpGet(const char *url)
  */
 int getSensorData(const String &sensorsConnected)
 {
-  int z = 0;
+  int z = 0, cnt = 0;
   // Header before first '|' is row count sent by the backend.
   String rows = sensorsConnected.substring(0, sensorsConnected.indexOf("|"));
   int numberOfRows = atoi(rows.c_str());
@@ -538,6 +542,7 @@ int getSensorData(const String &sensorsConnected)
 
   // Rebuild maps each refresh so stale/disconnected devices are removed.
   ipMap.clear();
+  macMap.clear();
   locMap.clear();
 
   for (int i = 0; i < numberOfRows; i++)
@@ -552,10 +557,15 @@ int getSensorData(const String &sensorsConnected)
     int index1 = sensorConnected.indexOf(",");
     ip = sensorConnected.substring(index + 1, index1);
 
-    int index2 = sensorConnected.indexOf("|");
+    int index2 = sensorConnected.indexOf("-");
     location = sensorConnected.substring(index1 + 1, index2);
 
-    // Expand grouped names like "BME_BMP" into unique keys: BME_<z>, BMP_<z+1>.
+    int index3 = sensorConnected.indexOf("|");
+    mac = sensorConnected.substring(index2 + 1, index3);
+
+    Serial.printf("sensor %s \n ip:%s \n mac:%s \n room %s\n", sensorName.c_str(), ip.c_str(), mac.c_str(), location.c_str());
+
+    // Expand grouped names like "BME_BMP" or single "BME" into unique keys: BME_<z>, BMP_<z+1>.
     while (1)
     {
       int j = sensorName.indexOf("_");
@@ -564,7 +574,9 @@ int getSensorData(const String &sensorsConnected)
         String name = sensorName.substring(0, j);
         name = name + "_" + z++; // make unique key
         ipMap[name.c_str()] = ip.c_str();
+        macMap[name.c_str()] = mac.c_str();
         sensorName = sensorName.substring(j + 1);
+        cnt++;
       }
       else
         break;
@@ -584,7 +596,7 @@ int getSensorData(const String &sensorsConnected)
     sensorConnected = sensorConnected.substring(index2 + 1); // Move to the next device in string
 
   } // end for
-  return numberOfRows;
+  return cnt;
 }
 /**
  * @brief Handles input from the Blynk terminal widget.
@@ -816,15 +828,15 @@ void getSensorData4User(String input, String ip)
   // Static to avoid recreation on each function call.
   static const std::map<String, int> tagMap =
       {
-          {"bmx", 77},   // BMP390
-          {"bme", 76},   // BME280
-          {"bmp", 58},   // BMP280
-          {"sht", 44},   // SHT35
-          {"adc", 48},   // ADS1115
-          {"ds1", 28}};  // DS18B20
-  
+          {"bmx", 77},  // BMP390
+          {"bme", 76},  // BME280
+          {"bmp", 58},  // BMP280
+          {"sht", 44},  // SHT35
+          {"adc", 48},  // ADS1115
+          {"ds1", 28}}; // DS18B20
+
   char tmp[512];
-  
+
   // Set output label and unit: default is temperature in Fahrenheit.
   String label = "Temp", postFix = "F";
   if (input.startsWith("adc"))
@@ -847,9 +859,9 @@ void getSensorData4User(String input, String ip)
   if (it == tagMap.end())
   {
     Serial.printf("device not found .%s.\n", input.c_str());
-    return;  // Not found: abort.
+    return; // Not found: abort.
   }
-  int device = it->second;  // Use the device code from the tag map.
+  int device = it->second; // Use the device code from the tag map.
 
   // Scan the tokens buffer (populated by socketClient) for matching device entries.
   // tokens[i][0] contains the device code; tokens[i][1] contains the reading value.
@@ -859,10 +871,10 @@ void getSensorData4User(String input, String ip)
     if (device == tokens[i][0])
     {
       deviceFound = true;
-      
+
       // Extract the sensor reading from the token buffer.
       float ftmp = tokens[i][1];
-      
+
       // For ADS1115, scale the raw reading by the voltage divider ratio (tokens[i][3]).
       // This converts raw ADC counts to the actual measured voltage.
       if (input.startsWith("adc"))
@@ -870,14 +882,14 @@ void getSensorData4User(String input, String ip)
 
       // Resolve the target IP to a human-readable room/location label.
       String room = ip2room(ip);
-      
+
       // Format and send one line to the Blynk terminal (V49).
       // Format: "<label> <value> <unit> <location>\n"
       sprintf(tmp, "%s %f %s %s \n", label.c_str(), ftmp, postFix.c_str(), room.c_str());
       Blynk.virtualWrite(V49, tmp);
     }
   }
-  
+
   if (!deviceFound)
     Serial.printf("tag not found in tokens %d\n", device);
 }
@@ -1004,7 +1016,7 @@ void blynkWrite(char *cmd, int index)
  *               The first element in each row is the sensor code (as a float).
  * @note A previous bug related to "Stack canary" exceptions was resolved by increasing the stack size.
  */
-void processSensorData(float tokens[DEVICES][5], String ip)
+void processSensorData(float tokens[DEVICES][5], String mac)
 {
   const std::map<int, const char *> sensorMap =
       {
@@ -1022,7 +1034,7 @@ void processSensorData(float tokens[DEVICES][5], String ip)
   {
     int sensorCode = static_cast<int>(tokens[i][0]);
     if (!sensorCode)
-      continue;
+      break;
     auto it = sensorMap.find(sensorCode);
     if (it != sensorMap.end())
     {
