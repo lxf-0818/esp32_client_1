@@ -535,11 +535,10 @@ int getSensorData(const String &sensorsConnected)
   // Header before first '|' is row count sent by the backend.
   String rows = sensorsConnected.substring(0, sensorsConnected.indexOf("|"));
   int numberOfRows = atoi(rows.c_str());
-
+  //Serial.printf("sensors connected %s\n", sensorsConnected.c_str());
   // Slice off the payload body: "sensor:ip,location|sensor:ip,location|..."
   String sensorConnected = sensorsConnected.substring(sensorsConnected.indexOf("|") + 1,
                                                       sensorsConnected.lastIndexOf("|"));
-
   // Rebuild maps each refresh so stale/disconnected devices are removed.
   ipMap.clear();
   macMap.clear();
@@ -548,8 +547,7 @@ int getSensorData(const String &sensorsConnected)
   for (int i = 0; i < numberOfRows; i++)
   {
     // Example tuple stream:
-    // BME:192.168.1.4,Laundry Room|BMP:192.168.1.3,Master Bedroom|
-
+    // BME:192.168.1.10,Mud Room-58:BF:25:DA:AE:59|BMX_BME:192.168.1.13,Main Room-48:55:19:ED:B8:B4| 
     // Parse one device tuple: "sensor_or_group:ip,location|".
     int index = sensorConnected.indexOf(":");
     String sensorName = sensorConnected.substring(0, index) + "_"; // add end of string token
@@ -563,7 +561,7 @@ int getSensorData(const String &sensorsConnected)
     int index3 = sensorConnected.indexOf("|");
     mac = sensorConnected.substring(index2 + 1, index3);
 
-    Serial.printf("sensor %s \n ip:%s \n mac:%s \n room %s\n", sensorName.c_str(), ip.c_str(), mac.c_str(), location.c_str());
+    sensorConnected = sensorConnected.substring(index3 + 1); // Move to the next device in string 
 
     // Expand grouped names like "BME_BMP" or single "BME" into unique keys: BME_<z>, BMP_<z+1>.
     while (1)
@@ -593,7 +591,6 @@ int getSensorData(const String &sensorsConnected)
     }
     // tokens[][] is populated by socketClient and consumed by processSensorData.
     processSensorData(tokens, ip.c_str());
-    sensorConnected = sensorConnected.substring(index2 + 1); // Move to the next device in string
 
   } // end for
   return cnt;
