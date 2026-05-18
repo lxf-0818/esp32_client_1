@@ -100,7 +100,11 @@ int socketClient(char *espServer, char *command, bool updateErrorQueue);
 // Struct Definitions
 /**
  * @struct socket_t
- * @brief Structure to hold socket recovery task parameters.
+ * @brief C-style `typedef struct` alias used for socket recovery task parameters.
+ *
+ * This declaration creates an anonymous struct and immediately aliases it as
+ * `socket_t`, so users can write `socket_t` directly instead of
+ * `struct socket_t`. It keeps task queue payload declarations concise.
  * @var fun_ptr Function pointer to the recovery function (typically `socketClient`).
  * @var ipAddr  Null-terminated IP address string (max 20 chars).
  * @var cmd     Null-terminated command string (max 20 chars).
@@ -115,7 +119,11 @@ socket_t socketQue;
 
 /**
  * @struct message_t
- * @brief Structure to hold an HTTP POST message for the PHP back-end.
+ * @brief C-style `typedef struct` alias used for HTTP queue message payloads.
+ *
+ * Like `socket_t`, this uses `typedef struct` to define and alias the type in
+ * one step. The resulting `message_t` type is passed through FreeRTOS queues
+ * and reused across HTTP helper routines.
  * @var device  Device name/identifier (max 10 chars).
  * @var line    Formatted HTTP POST data payload (max MAX_LINE_LENGTH chars).
  * @var key     Numeric key or row ID associated with the message.

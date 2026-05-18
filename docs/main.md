@@ -18,8 +18,8 @@ Primary ESP32 client runtime for Blynk integration, server polling, sensor fetch
 
 ## Widget Refresh Path
 `refreshWidgets()`:
-1. GET sensor list from `ip.php` via `performHttpGet()`
-2. parse with `getSensorData()` into `ipMap` sensor:ip and `locMap` location:ip
+1. GET sensor roster from `macip.php` (`ipMacList`) via `performHttpGet()`
+2. parse with `getSensorData()` into `ipMap` (sensor key -> IP), `locMap` (IP -> location), `macMap` (sensor key -> MAC), and `maclocMap` (MAC -> location)
 3. socket poll each server with `ALL`
 4. update Blynk terminal only when sensor list changes 
 5. update Blynk counters (V7, V20, V19, V34) and last message (V47)
@@ -52,12 +52,12 @@ Unrecognised commands return an error message to the terminal.
 
 ## Helper Functions
 - `performHttpGet(url)` — HTTP GET wrapper, returns response string or empty on failure
-- `getSensorData(sensorsConnected)` — parses `"count|sensor:ip,location|..."` into `ipMap` (sensor key -> IP) and `locMap` (IP -> location), then socket-polls each device
+- `getSensorData(sensorsConnected)` — parses `"count|sensor_or_group:ip,location-mac|..."` into runtime maps (`ipMap`, `locMap`, `macMap`, `maclocMap`), then socket-polls each device
 - `getSensorData4User(input, ip)` — polls one node (`ALL`), filters token rows by sensor tag, and writes formatted values to terminal pin V49
 - `processSensorData(tokens, ip)` — converts sensor codes into device names, derives location from the source IP, sends HTTP updates, and refreshes widgets
 - `upDateWidget(sensor, tokens[])` — writes sensor values to Blynk virtual pins; supports BME280, BMP390, SHT35, ADS1115 (DS18B20 and BMP280 are not handled — no matching branch exists)
 - `getIP(sensorName)` — case-insensitive substring lookup that returns all matching IPs as a `|`-delimited string with trailing `|` (e.g. `"bme"` matches `"BME280"`)
-- `ip2room(ip)` — maps a sensor IP to a room/location label for terminal output
+- `mac2room(sensor)` — maps a sensor key to room/location text via `macMap` (sensor -> MAC) and `maclocMap` (MAC -> location)
 - `blynkWrite(cmd, index)` — maps Blynk button index to sensor labels (`ADC`, `BME`, `SHT`, `BMP`, `DS1`, `BMX`, `ALL`), strips the `_<n>` suffix from `ipMap` keys before matching, sends `BLK`/`RST`, and mirrors response text to `lastMsg` and V47
 - `isServerConnected(serverIP, port)` — TCP connect/disconnect reachability check (default port 8888)
 - `printUptime()` — formats and writes uptime to Blynk terminal (V49)
@@ -68,10 +68,12 @@ Unrecognised commands return an error message to the terminal.
 
 ## getSensorData Flow
 1. Read payload header `<rows>` from `"<rows>|..."`.
-2. Extract the tuple stream body: `"sensor_or_group:ip,location|..."`.
+2. Extract the tuple stream body: `"sensor_or_group:ip,location-mac|..."`.
 3. Clear and rebuild runtime maps for a clean refresh cycle:
   - `ipMap`: `<SENSOR>_<n>` -> IP
   - `locMap`: IP -> location
+  - `macMap`: `<SENSOR>_<n>` -> MAC
+  - `maclocMap`: MAC -> location
 4. For each tuple, split grouped sensor names like `BME_BMP` into separate keys (`BME_<n>`, `BMP_<n+1>`).
 5. Poll each parsed IP with socket command `ALL`.
 6. On poll failure, queue recovery (`socketRecovery`) and increment `failSocket`.

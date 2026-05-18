@@ -110,12 +110,15 @@ void printUptime();
 String getIP(String sensorName);
 void printTokens(float tokens[DEVICES][5]);
 void ping();
-String ip2room(String ip);
+String mac2room(String sensor);
 
 void setupHTTP_request(String sensorName, String location, float tokens[]);
 
 std::map<std::string, std::string> ipMap;
 std::map<std::string, std::string> locMap;
+
+std::map<std::string, std::string> macMap;
+std::map<std::string, std::string> maclocMap;
 
 String ip, mac, location;
 const uint16_t port = 8888;
@@ -266,19 +269,18 @@ void refreshWidgets() // called every x seconds by SimpleTimer
     Blynk.virtualWrite(V46, "\nStart:\n");
     for (const auto &pair : ipMap)
     {
-      location = ip2room(pair.second.c_str());
+      location = mac2room(pair.first.c_str());
       // ipMap keys are stored as "<SENSOR>_<n>"; strip "_<n>" before display.
       String sensor = pair.first.c_str();
       sensor = sensor.substring(0, sensor.length() - 2);
       // sprintf(tmp, "Sensor: %s -> %s \nip:%s\n", location.c_str(), sensor.c_str(),pair.second.c_str());
       sprintf(tmp, "Sensor: %s  %s \n", sensor.c_str(), location.c_str());
       Blynk.virtualWrite(V49, tmp);
-      sprintf(tmp,"\t\tIP: %s \n", pair.second.c_str());
+      sprintf(tmp, "\t\tIP: %s \n", pair.second.c_str());
       Blynk.virtualWrite(V49, tmp);
     }
     sprintf(tmp, "\n\tenter 'list' for valid commands\n");
     Blynk.virtualWrite(V49, tmp);
-    int dd = 0;
   }
 }
 void resetStats()
@@ -544,6 +546,9 @@ int getSensorData(const String &sensorsConnected)
   ipMap.clear();
   locMap.clear();
 
+  maclocMap.clear();
+  macMap.clear();
+
   for (int i = 0; i < numberOfRows; i++)
   {
     // Example tuple stream:
@@ -572,6 +577,7 @@ int getSensorData(const String &sensorsConnected)
         String name = sensorName.substring(0, j);
         name = name + "_" + z++; // make unique key
         ipMap[name.c_str()] = ip.c_str();
+        macMap[name.c_str()] = mac.c_str();
         sensorName = sensorName.substring(j + 1);
         cnt++;
       }
@@ -579,7 +585,7 @@ int getSensorData(const String &sensorsConnected)
         break;
     }
     locMap[ip.c_str()] = location.c_str();
-
+    maclocMap[mac.c_str()] = location.c_str();
     // NOTE: socketClient is overloaded; the 3rd parameter selects the client-call variant.
     int rc = socketClient((char *)ip.c_str(), (char *)"ALL", 1); // read sensor data from connected device
     if (rc)
@@ -590,6 +596,11 @@ int getSensorData(const String &sensorsConnected)
     }
     // tokens[][] is populated by socketClient and consumed by processSensorData.
     processSensorData(tokens, ip.c_str());
+
+    // for (const auto &pair : macMap)
+    //   Serial.printf("1st %s 2nd %s\n", pair.first.c_str(), pair.second.c_str());
+    // for (const auto &pair : maclocMap)
+    //   Serial.printf("1st %s 2nd %s\n", pair.first.c_str(), pair.second.c_str());
 
   } // end for
   return cnt;
@@ -689,11 +700,7 @@ BLYNK_WRITE(V49)
     break;
   case 6:
     for (const auto &pair : ipMap)
-    {
-      String input1 = pair.first.c_str();
-      input1.toLowerCase();
-      getSensorData4User(input1.substring(0,3), pair.second.c_str());
-    }
+      getSensorData4User(pair.first.c_str(), pair.second.c_str());
     break;
   }
 }
@@ -824,16 +831,11 @@ void getSensorData4User(String input, String ip)
   // input = input.substring(0,3);
   // Map 3-letter sensor prefixes to their device ID codes (used in tokens[i][0]).
   // Static to avoid recreation on each function call.
-  static const std::map<String, int> tagMap =
-      {
-          {"bmx", 77},  // BMP390
-          {"bme", 76},  // BME280
-          {"bmp", 58},  // BMP280
-          {"sht", 44},  // SHT35
-          {"adc", 48},  // ADS1115
-          {"ds1", 28}}; // DS18B20
 
   char tmp[512];
+  String sensor = input;
+  input = input.substring(0, 3);
+  input.toLowerCase();
 
   // Set output label and unit: default is temperature in Fahrenheit.
   String label = "Temp", postFix = "F";
@@ -851,6 +853,14 @@ void getSensorData4User(String input, String ip)
     Serial.println("socketClient() failed");
     return;
   }
+  static const std::map<String, int> tagMap =
+      {
+          {"bmx", 77},  // BMP390
+          {"bme", 76},  // BME280
+          {"bmp", 58},  // BMP280
+          {"sht", 44},  // SHT35
+          {"adc", 48},  // ADS1115
+          {"ds1", 28}}; // DS18B20
 
   // Look up the user-provided sensor prefix in the tag map.
   auto it = tagMap.find(input);
@@ -860,7 +870,7 @@ void getSensorData4User(String input, String ip)
     return; // Not found: abort.
   }
   int device = it->second; // Use the device code from the tag map.
-  
+
   // Scan the tokens buffer (populated by socketClient) for matching device entries.
   // tokens[i][0] contains the device code; tokens[i][1] contains the reading value.
   bool deviceFound = false;
@@ -878,8 +888,8 @@ void getSensorData4User(String input, String ip)
       if (input.startsWith("adc"))
         ftmp *= tokens[i][3];
 
-      // Resolve the target IP to a human-readable room/location label.
-      String room = ip2room(ip);
+      // Resolve the target MAC to a human-readable room/location label.
+      String room = mac2room(sensor.c_str());
 
       // Format and send one line to the Blynk terminal (V49).
       // Format: "<label> <value> <unit> <location>\n"
@@ -887,10 +897,10 @@ void getSensorData4User(String input, String ip)
       Blynk.virtualWrite(V49, tmp);
     }
   }
-
   if (!deviceFound)
     Serial.printf("tag not found in tokens %d\n", device);
 }
+
 void ping()
 {
 
@@ -908,7 +918,8 @@ void ping()
   {
     alive = dead = 0;
     start = millis();
-    String room = ip2room(pair.second.c_str());
+
+    String room = mac2room(pair.first.c_str());
     int length = pair.first.length();
 
     sprintf(line, "%s %s: %s\n", pair.first.substr(0, length - 2).c_str(), pair.second.c_str(), room.c_str());
@@ -941,7 +952,7 @@ void ping()
 }
 
 /**
- * @brief Resolves a sensor IP address to its configured room/location label.
+ * @brief Resolves a sensor  address to its configured room/location label.
  *
  * Looks up the provided IP in `locMap`, which is rebuilt in `getSensorData()`
  * from the backend roster payload. Returns an empty string if the IP is not
@@ -950,15 +961,18 @@ void ping()
  * @param ip Sensor node IPv4 address (e.g. "192.168.1.41").
  * @return String Room/location text associated with the IP, or "" if missing.
  */
-String ip2room(String ip)
+String mac2room(String sensor)
 {
-  // Map sensor IP to room label for user-friendly terminal output.
-  String location;
-  auto it = locMap.find(ip.c_str());
-  if (it != locMap.end())
-    location = it->second.c_str();
-  else
-    location = "";
+  String location = "";
+  // Map sensor MAC to room label for user-friendly terminal output.
+  auto it = macMap.find(sensor.c_str());
+  if (it != macMap.end())
+  {
+    auto it1 = maclocMap.find(it->second.c_str());
+    if (it1 != maclocMap.end())
+      location = it1->second.c_str();
+  }
+
   return location;
 }
 
@@ -1026,25 +1040,34 @@ void processSensorData(float tokens[DEVICES][5], String ip)
           {28, "DS1"}};
 
   char sensor[10];
-  String location = ip2room(ip.c_str());
 
-  for (int i = 0; i < 5; i++)
+  String location = "";
+
+  auto it1 = maclocMap.find(mac.c_str());
+  if (it1 != maclocMap.end())
   {
-    int sensorCode = static_cast<int>(tokens[i][0]);
-    if (!sensorCode)
-      break;
-    auto it = sensorMap.find(sensorCode);
-    if (it != sensorMap.end())
+    location = it1->second.c_str();
+    if (location.isEmpty())
+      Serial.printf("mac address not found\n");
+
+    for (int i = 0; i < 5; i++)
     {
-      strcpy(sensor, it->second);
-      passSocket++;
-      setupHTTP_request(sensor, location, tokens[i]);
-      upDateWidget(sensor, tokens[i]);
-    }
-    else
-    {
-      Serial.printf("unknow code %d\n", sensorCode);
-      continue; // Unknown sensor code
+      int sensorCode = static_cast<int>(tokens[i][0]);
+      if (!sensorCode)
+        break;
+      auto it = sensorMap.find(sensorCode);
+      if (it != sensorMap.end())
+      {
+        strcpy(sensor, it->second);
+        passSocket++;
+        setupHTTP_request(sensor, location, tokens[i]);
+        upDateWidget(sensor, tokens[i]);
+      }
+      else
+      {
+        Serial.printf("unknow code %d\n", sensorCode);
+        continue; // Unknown sensor code
+      }
     }
   }
 }
