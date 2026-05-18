@@ -75,7 +75,7 @@
 #include "blynk_widget.h"
 #include <Ticker.h>
 #include <LittleFS.h>
-
+#include <tuple>
 #define INPUT_BUFFER_LIMIT 2048
 #define SCREEN_WIDTH 128 // OLED display width, in pixels
 #define SCREEN_HEIGHT 64 // OLED display height, in pixels
@@ -111,11 +111,12 @@ String getIP(String sensorName);
 void printTokens(float tokens[DEVICES][5]);
 void ping();
 String ip2room(String ip);
+
 void setupHTTP_request(String sensorName, String location, float tokens[]);
 
 std::map<std::string, std::string> ipMap;
-std::map<std::string, std::string> macMap;
 std::map<std::string, std::string> locMap;
+
 String ip, mac, location;
 const uint16_t port = 8888;
 String sensorName = "NO DEVICE";
@@ -161,6 +162,7 @@ void setup()
   Serial.begin(115200);
   char auth[50];
   char ssid[40], pass[40];
+
   lastMsg = "no warnings";
   String tmp;
   if (decryptWifiCredentials(auth, ssid, pass))
@@ -510,10 +512,10 @@ String performHttpGet(const char *url)
  * @brief Parses the backend roster payload and refreshes live data from all nodes.
  *
  * Payload contract expected from ip.php:
- * "<rows>|<SENSOR_OR_GROUP>:<IP>,<LOCATION>|...|"
+ * "<rows>|<SENSOR_OR_GROUP>:<IP>,<LOCATION>,<MAC>|...|"
  *
  * Example:
- * "2|BME_BMP:192.168.1.4,Laundry|ADC:192.168.1.7,Garage|"
+ * " 2|BME:192.168.1.10,Mud Room-58:BF:25:DA:AE:59|BMX_BME:192.168.1.13,Main Room-48:55:19:ED:B8:B4|"
  *
  * Parsing behavior:
  * - `<rows>` controls loop count (number of tuples expected in the payload body).
@@ -535,19 +537,18 @@ int getSensorData(const String &sensorsConnected)
   // Header before first '|' is row count sent by the backend.
   String rows = sensorsConnected.substring(0, sensorsConnected.indexOf("|"));
   int numberOfRows = atoi(rows.c_str());
-  //Serial.printf("sensors connected %s\n", sensorsConnected.c_str());
-  // Slice off the payload body: "sensor:ip,location|sensor:ip,location|..."
+  // Serial.printf("sensors connected %s\n", sensorsConnected.c_str());
+  //  Slice off the payload body: "sensor:ip,location|sensor:ip,location|..."
   String sensorConnected = sensorsConnected.substring(sensorsConnected.indexOf("|") + 1,
                                                       sensorsConnected.lastIndexOf("|"));
   // Rebuild maps each refresh so stale/disconnected devices are removed.
   ipMap.clear();
-  macMap.clear();
   locMap.clear();
 
   for (int i = 0; i < numberOfRows; i++)
   {
     // Example tuple stream:
-    // BME:192.168.1.10,Mud Room-58:BF:25:DA:AE:59|BMX_BME:192.168.1.13,Main Room-48:55:19:ED:B8:B4| 
+    // BME:192.168.1.10,Mud Room-58:BF:25:DA:AE:59|BMX_BME:192.168.1.13,Main Room-48:55:19:ED:B8:B4|
     // Parse one device tuple: "sensor_or_group:ip,location|".
     int index = sensorConnected.indexOf(":");
     String sensorName = sensorConnected.substring(0, index) + "_"; // add end of string token
@@ -561,7 +562,7 @@ int getSensorData(const String &sensorsConnected)
     int index3 = sensorConnected.indexOf("|");
     mac = sensorConnected.substring(index2 + 1, index3);
 
-    sensorConnected = sensorConnected.substring(index3 + 1); // Move to the next device in string 
+    sensorConnected = sensorConnected.substring(index3 + 1); // Move to the next device in string
 
     // Expand grouped names like "BME_BMP" or single "BME" into unique keys: BME_<z>, BMP_<z+1>.
     while (1)
@@ -572,7 +573,6 @@ int getSensorData(const String &sensorsConnected)
         String name = sensorName.substring(0, j);
         name = name + "_" + z++; // make unique key
         ipMap[name.c_str()] = ip.c_str();
-        macMap[name.c_str()] = mac.c_str();
         sensorName = sensorName.substring(j + 1);
         cnt++;
       }
@@ -693,7 +693,7 @@ BLYNK_WRITE(V49)
     {
       String input1 = pair.first.c_str();
       input1.toLowerCase();
-      getSensorData4User(input1.substring(0, 3), pair.second.c_str());
+      getSensorData4User(input1.substring(0,3), pair.second.c_str());
     }
     break;
   }
@@ -821,6 +821,8 @@ String getIP(String sensorName)
 
 void getSensorData4User(String input, String ip)
 {
+  // String sensor = input;
+  // input = input.substring(0,3);
   // Map 3-letter sensor prefixes to their device ID codes (used in tokens[i][0]).
   // Static to avoid recreation on each function call.
   static const std::map<String, int> tagMap =
@@ -859,7 +861,7 @@ void getSensorData4User(String input, String ip)
     return; // Not found: abort.
   }
   int device = it->second; // Use the device code from the tag map.
-
+  
   // Scan the tokens buffer (populated by socketClient) for matching device entries.
   // tokens[i][0] contains the device code; tokens[i][1] contains the reading value.
   bool deviceFound = false;
@@ -1013,7 +1015,7 @@ void blynkWrite(char *cmd, int index)
  *               The first element in each row is the sensor code (as a float).
  * @note A previous bug related to "Stack canary" exceptions was resolved by increasing the stack size.
  */
-void processSensorData(float tokens[DEVICES][5], String mac)
+void processSensorData(float tokens[DEVICES][5], String ip)
 {
   const std::map<int, const char *> sensorMap =
       {
