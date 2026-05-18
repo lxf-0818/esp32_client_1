@@ -266,20 +266,19 @@ void refreshWidgets() // called every x seconds by SimpleTimer
     Blynk.virtualWrite(V46, "\nStart:\n");
     for (const auto &pair : ipMap)
     {
-
       location = ip2room(pair.second.c_str());
-
       // ipMap keys are stored as "<SENSOR>_<n>"; strip "_<n>" before display.
       String sensor = pair.first.c_str();
       sensor = sensor.substring(0, sensor.length() - 2);
       // sprintf(tmp, "Sensor: %s -> %s \nip:%s\n", location.c_str(), sensor.c_str(),pair.second.c_str());
-      sprintf(tmp, "Sensor: %s  %s \n", sensor.c_str(), pair.second.c_str());
+      sprintf(tmp, "Sensor: %s  %s \n", sensor.c_str(), location.c_str());
       Blynk.virtualWrite(V49, tmp);
-      sprintf(tmp, "\t\tLocation: %s \n", location.c_str());
+      sprintf(tmp,"\t\tIP: %s \n", pair.second.c_str());
       Blynk.virtualWrite(V49, tmp);
     }
     sprintf(tmp, "\n\tenter 'list' for valid commands\n");
     Blynk.virtualWrite(V49, tmp);
+    int dd = 0;
   }
 }
 void resetStats()

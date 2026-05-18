@@ -299,7 +299,6 @@ void taskSQL_HTTP(void *pvParameters)
                 else
                 {
                     String phpScript = "http://192.168.1.252/delete.php?key=" + message.key;
-                    Serial.println(phpScript);
                     failPost++;
                     int j = 0, rc = 0;
                     while (1)
