@@ -51,12 +51,14 @@ extern String lastMsg;
 extern int failSocket, passSocket, recoveredSocket, retry;
 extern byte enc_iv_copy[N_BLOCK], aes_iv[N_BLOCK];
 extern char cleartext[INPUT_BUFFER_LIMIT];
+
 void taskSQL_HTTP(void *pvParameters);
 int socketRecovery(char *IP, char *cmd2Send);
 int socketClient(char *espServer, char *command, bool updateErrorQueue);
 void upDateWidget(char *sensor, float tokens[]);
 void printTokens(float tokens[DEVICES][5]);
 void decrypt_to_cleartext(char *msg, uint16_t msgLen, byte iv[], char *cleartext);
+bool queStat();
 
 /**
  * @brief Establishes a socket connection to a server, sends a command, and processes the response.
@@ -261,13 +263,13 @@ char *socketClient(char *espServer, char *command)
     }
     if (client.connected())
         client.println(command); // send cmd to server (esp8266) ie "BLK"/"RST"
-        
+
     char *mem = (char *)malloc(80);
     if (mem == NULL)
     {
         //  did you call free()?
         // Blynk.logEvent("mem_alloc_failed");
-        // queStat();
+        queStat();
         ESP.restart();
     }
     if (strstr(command, (char *)"RST"))
