@@ -405,13 +405,13 @@ void taskSocketRecov(void *pvParameters)
  * @param tokens An array of float values used to populate the HTTP request data.
  *               - tokens[1]: Base measurement value.
  *               - tokens[2]: Secondary measurement value.
- *               - tokens[3]: Scaling factor for ADS1115 and queue key value.
+ *               - tokens[3]: Input Scaling factor for ADS1115 Output queue key value.
  *
  * @note The function uses an external variable `passSocket` for additional data
  *       in the HTTP request and an external FreeRTOS queue handle `QueHTTP_Handle`.
  *
  * @details The constructed HTTP request string includes the following parameters:
- *          - api_key: A predefined API key,
+ *          - api_key: A predefined API key, read from LittleFS.
  *          - sensor: The provided sensor name.
  *          - location: The provided `sensorLocation` argument.
  *          - value1, value2: Values from the `tokens` array.

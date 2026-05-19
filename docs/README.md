@@ -1,6 +1,6 @@
 # ESP32 Client Documentation
 
-Last updated: 2026-05-15
+Last updated: 2026-05-18
 
 ## Overview
 This project is an ESP32-based IoT client that:
@@ -22,19 +22,6 @@ Detailed module docs:
 - docs/misc.md
 - docs/blynk_widget.md
 
-## Build Environment
-PlatformIO environment:
-- env name: esp32dev
-- board: esp32dev
-- framework: arduino
-- filesystem: littlefs
-- partitions: huge_app.csv
-- monitor speed: 115200
-- build flags: -Wall -Wextra
-- build type: debug
-
-Configured in platformio.ini.
-
 ## Project Structure
 - src/main.cpp: App entry, Blynk handlers, widget refresh, OLED, watchdog logic.
 - src/socketClient.cpp: Sensor socket I/O and token parsing.
@@ -55,7 +42,7 @@ Configured in platformio.ini.
 4. setup() initializes RTOS support.
 5. setup() starts timer for watchdog ticker.
 6. loop() continuously runs lwdtFeed(), Blynk.run(), and timer.run().
-7. refreshWidgets() fetches current sensor list from HTTP, updates sensor map, and updates Blynk stats.
+7. refreshWidgets() fetches current sensor roster from HTTP (macip.php), rebuilds runtime maps, and updates Blynk stats.
 8. Sensor data is read via socketClient() and forwarded to matching Blynk widgets.
 
 ## Blynk Integration
@@ -82,6 +69,7 @@ The client currently uses fixed local endpoints in src/main.cpp:
 - rows.php
 - deleteALL.php
 - ip.php
+- macip.php
 - deleteIP.php
 - esp-data.php
 
@@ -90,10 +78,13 @@ If your server IP changes, update these constants.
 Note: data/api.txt exists in this project and is loaded by FreeRTOS HTTP queue logic. Endpoint host constants in main.cpp are still hardcoded.
 
 ## Data Model Summary
-- ipMap (std::map<string, string>): sensorName -> ipAddress.
+- ipMap (std::map<string, string>): sensorName_with_index -> ipAddress.
+- locMap (std::map<string, string>): ipAddress -> location label.
+- macMap (std::map<string, string>): sensorName_with_index -> macAddress.
+- maclocMap (std::map<string, string>): macAddress -> location label.
 - tokens[6][5]: parsed sensor value matrix from socket payloads.
 - passSocket/failSocket/recoveredSocket/retry: communication health counters.
-- lastSensorsConnected: previous ip list to avoid unnecessary Blynk terminal spam.
+- lastSensorsConnected: previous roster payload snapshot to avoid unnecessary Blynk terminal spam.
 
 ## Watchdog Behavior
 A software loop watchdog is implemented with Ticker:
@@ -128,7 +119,7 @@ pio run -t uploadfs
 ## Troubleshooting
 - If upload fails but build passes, verify COM port and USB cable stability.
 - If Blynk stays offline, validate decrypted SSID/password and internet reachability.
-- If no sensors appear, test ip.php endpoint response and local LAN routing.
+- If no sensors appear, test macip.php endpoint response and local LAN routing.
 - If frequent reboots occur, inspect watchdog logs on serial monitor and reduce blocking work in loop callbacks.
 
 ## Recommended Next Improvements

@@ -527,7 +527,7 @@ String performHttpGet(const char *url)
  * - Rebuilds `ipMap` (sensor key -> IP) and `locMap` (IP -> location) from scratch.
  * - Polls each parsed IP using socket command `ALL`.
  * - On socket failure, queues the request in recovery queue and increments `failSocket`.
- * - Always forwards parsed token data to `processSensorData()`.
+ * - else forwards parsed token data to `processSensorData()`.
  *
  * @param sensorsConnected Delimited roster payload returned by ip.php.
  * @return int Row count parsed from the payload header.
@@ -595,7 +595,8 @@ int getSensorData(const String &sensorsConnected)
       failSocket++;
     }
     // tokens[][] is populated by socketClient and consumed by processSensorData.
-    processSensorData(tokens, ip.c_str());
+    else
+      processSensorData(tokens, ip.c_str());
 
     // for (const auto &pair : macMap)
     //   Serial.printf("1st %s 2nd %s\n", pair.first.c_str(), pair.second.c_str());

@@ -82,10 +82,14 @@ Additional behavior:
 ### taskSocketRecov(...)
 Consumes queued socket failures and retries command transmission.
 Updates recovery counters and messages.
+>>> failed to connect: 192.168.1.13  
+>>> failed to connect: 192.168.1.13
+>>> failed to connect: 192.168.1.13
+Recovered last network fail for host:192.168.1.13 
+passSocket 85054 failSocket 1  recovered 1 retry 3 
 
 Additional behavior:
 - Increments global retry counter before each recovery attempt.
-- Calls socketClient(..., NO_UPDATE_FAIL) so normal fail stats are not double-counted.
 - Requeues failed recovery attempts back into QueSocket_Handle.
 
 ### setupHTTP_request(sensorName, sensorLocation, tokens)
