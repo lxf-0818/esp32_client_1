@@ -1,6 +1,6 @@
 # ESP32 Client Documentation
 
-Last updated: 2026-05-18
+Last updated: 2026-05-21
 
 ## Overview
 This project is an ESP32-based IoT client that:
@@ -49,7 +49,7 @@ Detailed module docs:
 Important handlers in src/main.cpp:
 - BLYNK_CONNECTED(): Writes boot metadata, resets counters, loads initial stats.
 - BLYNK_WRITE(V49): Terminal command parser.
-- BLYNK_WRITE(V18): Removes stale IP data on server side.
+- BLYNK_WRITE(V18): Clears backend sensor rows via deleteALL.php.
 - BLYNK_WRITE(BLINK_TST): Sends BLK test command to selected sensor group (or ALL) via widget index.
 - BLYNK_WRITE(V10): Sends RST command to selected sensor group (or ALL) via widget index.
 
@@ -89,7 +89,7 @@ Note: data/api.txt exists in this project and is loaded by FreeRTOS HTTP queue l
 ## Watchdog Behavior
 A software loop watchdog is implemented with Ticker:
 - lwdtFeed() updates loop heartbeat timing.
-- lwdtcb() reboots if loop timing exceeds LWD_TIMEOUT.
+- lwdtcb() reboots if loop timing exceeds LWD_TIMEOUT after running queue-drain check (queStat()).
 - Timeout is currently 15000 ms.
 
 ## Filesystem Configuration

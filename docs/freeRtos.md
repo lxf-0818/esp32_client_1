@@ -3,6 +3,8 @@
 ## Purpose
 Runs background tasks for queue-driven recovery and SQL HTTP posting, isolated from the main Blynk loop to reduce blocking behavior.
 
+`processSensorData()` is also invoked from recovery context after a successful retried socket read, so recovered payloads are processed the same way as normal reads.
+
 ## Core Objects
 - QueSocket_Handle: queue for failed socket operations
 - QueHTTP_Handle: queue for HTTP post messages
@@ -12,7 +14,7 @@ Runs background tasks for queue-driven recovery and SQL HTTP posting, isolated f
 
 ## Task Topology
 initRTOS creates three pinned tasks:
-- taskBlink (core 1, priority 1 - low): heartbeat LED toggle
+- taskBlink (core 0, priority 1 - low): heartbeat LED toggle
 - taskSQL_HTTP (core 0, priority 2): POST sensor lines to backend
 - taskSocketRecov (core 1, priority 3 - high): retry failed socket calls
 
@@ -26,7 +28,6 @@ Current constants:
 - HTTP_DELAY_MS = 100
 - BLINK_DELAY_MS = 1000
 - MAX_RETRY = 5
-- NO_UPDATE_FAIL = 0 (flag passed to socketClient to suppress double-counting fail stats during recovery)
 - MAX_LINE_LENGTH = 120 (max bytes for HTTP POST payload string in `message_t`)
 - WORDS_PER_BYTE = 4 (stack high-water mark word → byte conversion factor)
 - LED_BUILTIN = 2 (GPIO pin for heartbeat LED)
@@ -37,6 +38,12 @@ Current constants:
 - function pointer for socket operation
 - target IP string
 - command string
+- source MAC string
+
+Current function pointer signature:
+- `int (*fun_ptr)(char *, char *)`
+
+The queued recovery callback currently points to the 2-argument `socketClient` overload.
 
 ### message_t
 - device name
@@ -51,8 +58,6 @@ Current constants:
 | `taskSQL_HTTP` | 0 | 2 | TASK_STACK_SIZE × 2 | HTTP_DELAY_MS |
 | `taskSocketRecov` | 1 | 3 | TASK_STACK_SIZE × 2 | SOCKET_DELAY_MS |
 
-> `taskPing` has a function prototype but its implementation is **commented out** and is not active.
-
 ## Main Functions
 
 ### initRTOS()
@@ -63,9 +68,14 @@ Failure behavior in initRTOS:
 - If any task handle is null after creation, ESP restarts.
 - Queue/mutex allocation failures are logged to serial.
 
-### socketRecovery(IP, cmd)
+### socketRecovery(IP, cmd, MAC)
 Pushes failed socket operation to socket queue.
 If queue is full, calls deleteIP.php for the IP and resets the socket queue.
+
+Return behavior:
+- `pdTRUE` on successful enqueue
+- `errQUEUE_FULL` when full (after cleanup path)
+- `10` when queue handle is null
 
 ### taskSQL_HTTP(...)
 Consumer loop for HTTP queue:
@@ -82,14 +92,12 @@ Additional behavior:
 ### taskSocketRecov(...)
 Consumes queued socket failures and retries command transmission.
 Updates recovery counters and messages.
->>> failed to connect: 192.168.1.13  
->>> failed to connect: 192.168.1.13
->>> failed to connect: 192.168.1.13
 Recovered last network fail for host:192.168.1.13 
 passSocket 85054 failSocket 1  recovered 1 retry 3 
 
 Additional behavior:
 - Increments global retry counter before each recovery attempt.
+- On successful retry (`socketClient` return code 0), calls `processSensorData(tokens, ip, mac)`.
 - Requeues failed recovery attempts back into QueSocket_Handle.
 
 ### setupHTTP_request(sensorName, sensorLocation, tokens)
@@ -117,6 +125,7 @@ Utility to inspect queue state and gate restart behavior when work is still pend
 Notes:
 - Waits up to 5 seconds for both queues to drain.
 - On success, takes both mutexes before returning true (caller path is typically followed by restart).
+- This function does not release those mutexes itself; it is intended for shutdown/restart paths.
 
 ## Network Endpoints Used
 Hardcoded local endpoints are used for row delete/recovery and post actions, including:
@@ -128,3 +137,4 @@ Hardcoded local endpoints are used for row delete/recovery and post actions, inc
 - Queue backpressure is intentionally small; overflow triggers cleanup strategy.
 - Mutex use protects shared HTTP/socket sections while tasks run concurrently.
 - This design helps keep the main loop responsive while handling transient network failures.
+- If `QueSocket_Handle` is full, `socketRecovery()` clears stale entries with `xQueueReset()` after issuing `deleteIP.php?key=<ip>`.

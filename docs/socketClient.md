@@ -13,18 +13,18 @@ Widget updates and SQL queue dispatch happen later in `processSensorData()`
 - typical command: ALL
 - control commands: BLK, RST
 
-Expected server response for sensor reads (AES on):
+Expected server response for sensor reads:
  `<crc_hex>:<ciphertext>:<iv_hex_csv>`
 
 - CRC is verified over the **ciphertext** substring (between first `:` and last `:`).
 - IV is the comma-separated hex bytes after the last `:`; parsed into a 16-byte array before decryption.
 - After CRC passes, ciphertext is AES-decrypted using the extracted IV to recover the plaintext payload.
 
-If `SOCKET_AES` is disabled (not defined), the server sends `<crc_hex>:<plaintext>` and decryption is skipped.
+Current build path defines `SOCKET_AES`, so decryption is always enabled in normal operation.
 
 ## Main APIs
 
-### socketClient(espServer, command, updateErrorQueue)
+### socketClient(espServer, command)
 Returns:
 - 0 success
 - 1 connect failure
@@ -42,12 +42,11 @@ Flow:
 8. tokenize records into `tokens[6][5]`
 9. return 0 on success
 
-> **Note:** `updateErrorQueue` is accepted as a parameter but is currently unused
-> (`(void)updateErrorQueue` suppresses the compiler warning). Failure recovery
-> (calling `socketRecovery()` and incrementing `failSocket`) is the caller's responsibility.
+> (calling `socketRecovery()` on fails and incrementing `failSocket`) is the caller's responsibility.
 
 Failure handling:
 - On connect failure, timeout, or CRC mismatch the function returns an error code (1/2/3).
+- On those same failures, `lastMsg` is updated with a human-readable reason.
 - The caller (`getSensorData` in main.cpp) checks the return code and calls
   `socketRecovery()` / increments `failSocket` as needed.
 - Recovery retries are later handled by the FreeRTOS socket recovery task.
@@ -63,6 +62,7 @@ Current limits/behavior:
 - when the command contains `RST`, returns a formatted acknowledgement string
   like `Server 192.168.1.x Was Rebooted` without waiting for a payload
 - returns `NULL` on connect failure or timeout
+- does not update `lastMsg` (caller handles NULL/error signaling)
 
 Unknown sensor codes are not handled in this file. They are detected later by
 `processSensorData()` which logs `unknow code <id>` and skips those rows.
@@ -79,7 +79,6 @@ row whose sensor id is `0`.
 ## Compile Flags
 - `SOCKET_AES` — enabled by default (`#define SOCKET_AES`); enables AES decryption of socket payload.
 - `DEBUG_TOKENS` — when defined, calls `printTokens()` to dump the parsed token matrix to Serial after each successful receive.
-- `NO_UPDATE_FAIL` — defined as `0`; reserved constant.
 
 ## Reliability and Recovery
 - timeout and connect failures are queued for retry
@@ -87,6 +86,10 @@ row whose sensor id is `0`.
 - `lastMsg`, fail/pass/retry counters are updated for diagnostics
 - socket recovery is queue-based: `socketRecovery()` pushes failed polls into
   `QueSocket_Handle`, and `taskSocketRecov()` retries them after a delay
+
+Logging behavior:
+- The connect-failure serial print inside `socketClient(char*, char*)` is currently commented out.
+- Diagnostic visibility is provided through `lastMsg` and the Blynk status widgets.
 
 ## Integration Points
 Called from `getSensorData()` during refresh cycles and from `getSensorData4User()` for terminal-driven live reads.

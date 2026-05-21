@@ -69,11 +69,11 @@
 #define SOCKET_DELAY_MS 50
 #define HTTP_DELAY_MS 100
 #define BLINK_DELAY_MS 1000
-#define NO_UPDATE_FAIL 0
 #define INPUT_BUFFER_LIMIT 2048
 #define MAX_LINE_LENGTH 120
 #define LED_BUILTIN 2
 #define MAX_RETRY 5
+#define DEVICES 6
 #define WORDS_PER_BYTE 4
 
 // Global Variables
@@ -83,20 +83,20 @@ TaskHandle_t socket_task_handle, http_task_handle, blink_task_handle;
 extern String lastMsg;
 extern int failSocket, passSocket, recoveredSocket, retry;
 extern String phpKey;
+extern float tokens[DEVICES][5];
 
 // Function Prototypes
 void initRTOS();
-int socketRecovery(char *IP, char *cmd2Send);
+int socketRecovery(char *IP, char *cmd2Send, char *MAC);
 void taskSocketRecov(void *pvParameters);
 void taskSQL_HTTP(void *pvParameters);
 void setupHTTP_request(String sensorName, String sensorLocation, float tokens[]);
 void taskBlink(void *pvParameters);
-String ip2room(String ip);
-
+void processSensorData(float tokens[DEVICES][5], String ip, String mac);
 
 bool queStat();
 int deleteRow(String phpScript);
-int socketClient(char *espServer, char *command, bool updateErrorQueue);
+int socketClient(char *espServer, char *command);
 // Struct Definitions
 /**
  * @struct socket_t
@@ -108,12 +108,14 @@ int socketClient(char *espServer, char *command, bool updateErrorQueue);
  * @var fun_ptr Function pointer to the recovery function (typically `socketClient`).
  * @var ipAddr  Null-terminated IP address string (max 20 chars).
  * @var cmd     Null-terminated command string (max 20 chars).
+ * @var macAddr Null-terminated MAC address string (max 20 chars).
  */
 typedef struct
 {
-    int (*fun_ptr)(char *, char *, bool);
+    int (*fun_ptr)(char *, char *);
     char ipAddr[20];
     char cmd[20];
+    char macAddr[20];
 } socket_t;
 socket_t socketQue;
 
@@ -150,7 +152,7 @@ message_t message;
  *   - `taskBlink`: Handles LED blinking functionality (core 0, priority 1).
  *   - `taskSQL_HTTP`: Manages HTTP-related operations (core 0, priority 2).
  *   - `taskSocketRecov`: Handles socket recovery operations (core 1, priority 3).
- *   
+ *
  * - FreeRTOS Scheduler: Once the above tasks are created, the FreeRTOS scheduler automatically manages their
  *                       execution based on their priorities and delays (vTaskDelay).
  * - Creates two mutexes:
@@ -173,7 +175,7 @@ void initRTOS()
 {
     uint32_t socket_delay = SOCKET_DELAY_MS, http_delay = HTTP_DELAY_MS, blink_delay = BLINK_DELAY_MS;
     pinMode(LED_BUILTIN, OUTPUT);
-  
+
     QueSocket_Handle = xQueueCreate(SOCKET_QUEUE_SIZE, sizeof(socket_t));
     if (QueSocket_Handle == NULL)
         Serial.println("Queue  socket could not be created..");
@@ -213,26 +215,35 @@ void initRTOS()
  *
  * @param IP Pointer to a character array containing the IP address.
  * @param cmd2Send Pointer to a character array containing the command to send.
+ * @param MAC Pointer to a character array containing the source device MAC address.
  * @return int `pdTRUE` (1) if the structure was successfully sent to the queue,
  *             `errQUEUE_FULL` (0) if the queue is full, or 10 if the queue handle is NULL.
  *
  * @note Ensure that `QueSocket_Handle` is initialized before calling this function.
- *       If the queue is full, the function will reset the queue and attempt to delete
- *       a row from the database using the provided IP address.
+ *       If the queue is full, the function calls `deleteIP.php?key=<ip>`, resets
+ *       the queue, and clears recovery counters.
  */
-int socketRecovery(char *IP, char *cmd2Send)
+int socketRecovery(char *IP, char *cmd2Send, char *MAC)
 {
- //   socket_t socketQue;
+    // UBaseType_t spacesLeft, waiting;
     if (QueSocket_Handle == NULL)
         Serial.println("QueSocket_Handle failed");
     else
     {
+        // waiting = uxQueueMessagesWaiting(QueSocket_Handle);
+        // spacesLeft = uxQueueSpacesAvailable(QueSocket_Handle);
+        // Serial.printf("prior to write queue size left %d waiting %d\n", spacesLeft, waiting);
+
         socketQue.fun_ptr = &socketClient;
         strcpy(socketQue.ipAddr, IP);
+        strcpy(socketQue.macAddr, MAC);
         strcpy(socketQue.cmd, cmd2Send);
-        int ret = xQueueSend(QueSocket_Handle, (void *)&socketQue, 0);
+        BaseType_t ret = xQueueSend(QueSocket_Handle, (void *)&socketQue, 0);
         if (ret == pdTRUE)
-        { /* Serial.println("recovering struct send to QueSocket sucessfully"); */
+        {
+            // waiting = uxQueueMessagesWaiting(QueSocket_Handle);
+            // spacesLeft = uxQueueSpacesAvailable(QueSocket_Handle);
+            // Serial.printf("recovering struct send, size left %d waiting %d\n", spacesLeft, waiting);
         }
         else if (ret == errQUEUE_FULL)
         {
@@ -241,6 +252,7 @@ int socketRecovery(char *IP, char *cmd2Send)
             deleteRow(phpScript); // delete
             // Blynk.logEvent("");
             xQueueReset(QueSocket_Handle); // clear stale etries in que since its full
+            failSocket = retry = recoveredSocket = 0;
         }
         return ret;
     }
@@ -264,12 +276,12 @@ int socketRecovery(char *IP, char *cmd2Send)
  * - POSTs message to `post-esp-data.php` endpoint at 192.168.1.252.
  * - On success: increments `passPost` counter.
  * - On failure: attempts to clean up via `deleteRow()` (retry up to MAX_RETRY times),
- *   re-queues message, increments `failPost` and `recovered` counters.
+ *   re-queues the same message, increments `failPost` and `recovered` counters.
  * - Logs diagnostics to Serial (response codes, message content, counters).
  *
  * @note
  * - The task uses non-blocking delays (`vTaskDelay`) to avoid blocking other tasks.
- * - The HTTP endpoint URL is hardcoded: `http://192.168.1.252/post-esp-data.php`
+ * - The HTTP endpoint URL is hardcoded: `http://192.168.1.252/post-esp-data.php`.
  * - POST payload is `application/x-www-form-urlencoded` format.
  *
  *
@@ -285,7 +297,7 @@ void taskSQL_HTTP(void *pvParameters)
     uint32_t http_delay = *((uint32_t *)pvParameters);
     TickType_t xDelay = http_delay / portTICK_PERIOD_MS;
     Serial.printf("Task Post SQL running on CoreID:%d xDelay:%u ms Free Bytes: %d\n",
-                  xPortGetCoreID(), (unsigned int)xDelay, uxTaskGetStackHighWaterMark(NULL) * WORDS_PER_BYTE);
+                  xPortGetCoreID(), (unsigned int)xDelay, uxTaskGetStackHighWaterMark(http_task_handle) * WORDS_PER_BYTE);
 
     for (;;)
     {
@@ -348,9 +360,10 @@ void taskSQL_HTTP(void *pvParameters)
  * 1. Waits for a socket message from the queue (blocking indefinitely).
  * 2. Takes a mutex to ensure thread-safe access to shared resources.
  * 3. Delays for the specified amount of time before attempting recovery.
- * 4. Calls the function pointer associated with the socket message to attempt recovery.
+ * 4. Calls the queued function pointer (`int (*)(char*, char*)`) to attempt recovery.
  * 5. Updates recovery statistics based on the success or failure of the recovery attempt.
- * 6. If recovery fails, re-queues the socket message for another recovery attempt.
+ * 6. If recovery succeeds, invokes `processSensorData(tokens, ip, mac)`.
+ * 7. If recovery fails, re-queues the socket message for another recovery attempt.
  * 7. Releases the mutex after processing the message.
  *
  * @warning This task assumes that the function pointer in the `socket_t` structure is valid
@@ -359,12 +372,13 @@ void taskSQL_HTTP(void *pvParameters)
 void taskSocketRecov(void *pvParameters)
 {
     // moving the following task to core 0 cause task to trigger internal WD timer ??
+    UBaseType_t spacesLeft, waiting;
 
     socket_t socketQue;
     uint32_t socket_delay = *((uint32_t *)pvParameters);
     const TickType_t xDelay = socket_delay / portTICK_PERIOD_MS;
     Serial.printf("Task Socket Recovery running on CoreID:%d xDelay:%u ms Free Bytes:%d\n",
-                  (unsigned int)xPortGetCoreID(), (unsigned int)xDelay, uxTaskGetStackHighWaterMark(NULL) * WORDS_PER_BYTE);
+                  (unsigned int)xPortGetCoreID(), (unsigned int)xDelay, uxTaskGetStackHighWaterMark(socket_task_handle) * WORDS_PER_BYTE);
     for (;;)
     {
         if (QueSocket_Handle != NULL)
@@ -376,17 +390,23 @@ void taskSocketRecov(void *pvParameters)
                 xSemaphoreTake(xMutex_sock, portMAX_DELAY);
                 vTaskDelay(xDelay);
                 retry++;
-
-                // do not update socket stats in recovery mode
-                int x = (*socketQue.fun_ptr)(socketQue.ipAddr, socketQue.cmd, NO_UPDATE_FAIL);
+                int x = (*socketQue.fun_ptr)(socketQue.ipAddr, socketQue.cmd);
                 if (!x)
                 {
+                    waiting = uxQueueMessagesWaiting(QueSocket_Handle);
+                    spacesLeft = uxQueueSpacesAvailable(QueSocket_Handle);
+                    processSensorData(tokens, socketQue.ipAddr, socketQue.macAddr);
                     recoveredSocket++;
-                    Serial.printf("Recovered last network fail for host:%s \n", socketQue.ipAddr);
+                    Serial.printf("Recovered last network fail for host:%s waiting %d space left %d \n", socketQue.ipAddr, waiting, spacesLeft);
                     Serial.printf("passSocket %d failSocket %d  recovered %d retry %d \n", passSocket, failSocket, recoveredSocket, retry);
                 }
                 else
-                    socketRecovery(socketQue.ipAddr, socketQue.cmd); //  write Fail to que here for recovery****
+                {
+                    socketRecovery(socketQue.ipAddr, socketQue.cmd, socketQue.macAddr); //  write Fail to que here for recovery****
+                    // waiting = uxQueueMessagesWaiting(QueSocket_Handle);
+                    // spacesLeft = uxQueueSpacesAvailable(QueSocket_Handle);
+                    // Serial.printf(" failed socket size left %d waiting %d\n", spacesLeft, waiting);
+                }
                 xSemaphoreGive(xMutex_sock);
             }
         }
@@ -405,7 +425,7 @@ void taskSocketRecov(void *pvParameters)
  * @param tokens An array of float values used to populate the HTTP request data.
  *               - tokens[1]: Base measurement value.
  *               - tokens[2]: Secondary measurement value.
- *               - tokens[3]: Input Scaling factor for ADS1115 Output queue key value.
+ *               - tokens[3]: Queue key value; also used as ADS1115 scaling factor.
  *
  * @note The function uses an external variable `passSocket` for additional data
  *       in the HTTP request and an external FreeRTOS queue handle `QueHTTP_Handle`.
@@ -421,8 +441,8 @@ void taskSocketRecov(void *pvParameters)
  * before being sent.
  *
  * If the queue is full, the function logs a message to the serial output.
- * If the queue handle is null or there is no free queue slot, the message is
- * not enqueued.
+ * If the queue handle is null or no queue slot is available, the message is
+ * dropped (non-blocking enqueue path).
  *
  * @warning Ensure that `QueHTTP_Handle` is initialized and has sufficient space
  *          before calling this function. The function does not block if the queue
@@ -444,6 +464,7 @@ void setupHTTP_request(String sensorName, String sensorLocation, float tokens[])
         httpRequestData += "&value1=" + String(tmp);
         httpRequestData += "&value2=" + String(tokens[2]);
         httpRequestData += "&value3=" + String(passSocket) + "";
+        // #define DEBUG
 #ifdef DEBUG
         Serial.printf("http req data %s %d\n", httpRequestData.c_str(), passSocket);
 #endif
@@ -482,7 +503,8 @@ void taskBlink(void *pvParameters)
     uint32_t blink_delay = *((uint32_t *)pvParameters);
     const TickType_t xDelay = blink_delay / portTICK_PERIOD_MS;
     Serial.printf("Task Blink running on CoreID:%d xDelay:%u ms Free Bytes: %d\n",
-                  (unsigned int)xPortGetCoreID(), (unsigned int)xDelay, uxTaskGetStackHighWaterMark(NULL) * WORDS_PER_BYTE);
+                  (unsigned int)xPortGetCoreID(), (unsigned int)xDelay,
+                   uxTaskGetStackHighWaterMark(blink_task_handle) * WORDS_PER_BYTE);
     for (;;)
     {
         digitalWrite(LED_BUILTIN, LOW);
@@ -500,8 +522,11 @@ void taskBlink(void *pvParameters)
  * Otherwise, it takes two mutexes (`xMutex_sock` and `xMutex_http`) to ensure
  * exclusive access and logs a completion message before returning true.
  *
- * @return true If both queues are empty and the mutexes are successfully taken.
+ * @return true If both queues are empty and both mutexes are successfully taken.
  * @return false If the queues are not empty within the 5-second timeout.
+ *
+ * @note This helper takes both mutexes and does not release them; call it only
+ *       from controlled restart/shutdown flows.
  */
 bool queStat()
 {

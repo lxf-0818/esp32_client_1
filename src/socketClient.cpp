@@ -39,7 +39,6 @@
 #include <map>
 #include <AESLib.h>
 
-#define NO_UPDATE_FAIL 0
 #define INPUT_BUFFER_LIMIT 2048
 #define SOCKET_AES
 #define MAX_LINE_LENGTH 120
@@ -53,7 +52,8 @@ extern byte enc_iv_copy[N_BLOCK], aes_iv[N_BLOCK];
 extern char cleartext[INPUT_BUFFER_LIMIT];
 
 void taskSQL_HTTP(void *pvParameters);
-int socketClient(char *espServer, char *command, bool updateErrorQueue);
+int socketClient(char *espServer, char *command);
+char * socketClient(char *espServer, String command);
 void upDateWidget(char *sensor, float tokens[]);
 void printTokens(float tokens[DEVICES][5]);
 void decrypt_to_cleartext(char *msg, uint16_t msgLen, byte iv[], char *cleartext);
@@ -64,7 +64,6 @@ bool queStat();
  *
  * @param espServer A pointer to a character array containing the server address.
  * @param command A pointer to a character array containing the command to send to the server.
- * @param updateErrorQueue A boolean flag indicating whether to update the error recovery queue in case of failure.
  *
  * @return int Returns:
  *         - 0 on success.
@@ -82,19 +81,17 @@ bool queStat();
  * 6. Decrypts the payload with AES-128-CBC when SOCKET_AES is defined.
  * 7. Tokenizes the plaintext records into the global `tokens[DEVICES][5]` float matrix.
  *
- * On failure the function sets `lastMsg` to a descriptive error string and returns
- * a non-zero code. 
+ * On failure, the function sets `lastMsg` to a descriptive error string and returns
+ * a non-zero code.
  *
- * @note `updateErrorQueue` is accepted for API symmetry but is currently unused
- *       (`(void)updateErrorQueue`). The parameter is reserved for future use.
  * @note Updates global `lastMsg` on connect failure, timeout, and CRC mismatch.
  *
  * @warning Ensure that the server address and command strings are properly null-terminated.
+ * @note Response timeout is 5 seconds in the `client.available()` wait loop.
  *
  */
-int socketClient(char *espServer, char *command, bool updateErrorQueue)
+int socketClient(char *espServer, char *command)
 {
-    (void)updateErrorQueue;
     extern float tokens[DEVICES][5];
     char str[500];
     bzero(str, 500);
@@ -103,7 +100,7 @@ int socketClient(char *espServer, char *command, bool updateErrorQueue)
 
     if (!client.connect(espServer, PORT))
     {
-        Serial.printf(">>> failed to connect: %s\n", espServer);
+       // Serial.printf(">>> failed to connect: %s\n", espServer);
         lastMsg = "failed to connect " + String(espServer);
         client.stop();
         return 1;
@@ -118,7 +115,7 @@ int socketClient(char *espServer, char *command, bool updateErrorQueue)
     {
         if (millis() - timeout > 5000)
         {
-            Serial.println(">>> Client Timeout!");
+         //   Serial.println(">>> Client Timeout!");
             lastMsg = "Client Timeout " + String(espServer);
             client.stop();
             return 2;
@@ -190,15 +187,15 @@ int socketClient(char *espServer, char *command, bool updateErrorQueue)
 }
 
 /**
- * @brief Prints the contents of a 2D array of tokens to the Serial monitor.
+ * @brief Prints parsed sensor token rows to the Serial monitor.
  *
- * This function iterates through a 5x5 array of floating-point numbers and
+ * This function iterates through up to 5 rows of the provided token matrix and
  * prints each row to the Serial monitor. The first element of each row is
  * treated as a sensor ID and is printed in hexadecimal format, while the
  * remaining elements are printed as floating-point numbers. The function
  * stops processing rows when the first element of a row is zero.
  *
- * @param tokens A 5x5 array of floating-point numbers representing the tokens.
+ * @param tokens A `DEVICES x 5` matrix of floating-point token values.
  *               The first element of each row is treated as a sensor ID.
  */
 void printTokens(float tokens[DEVICES][5])
@@ -218,11 +215,11 @@ void printTokens(float tokens[DEVICES][5])
         Serial.println();
     }
 }
-/**  this overload returns malloc its your duty to free!!!
+/**
  * @brief Establishes a socket connection to a server, sends a command, and retrieves the response.
  *
  * @param espServer A pointer to a character array containing the server's address.
- * @param command A pointer to a character array containing the command to send to the server.
+ * @param command A String containing the command to send to the server.
  * @return A pointer to a dynamically allocated character array containing the server's response.
  *         Returns NULL if the connection fails, a timeout occurs, or memory allocation fails.
  *
@@ -233,12 +230,13 @@ void printTokens(float tokens[DEVICES][5])
  * - If the connection is successful, it sends the provided command to the server.
  * - The function waits for a response from the server, with a timeout of 10 seconds.
  * - If no response is received within the timeout period, the connection is closed, and NULL is returned.
- * - The response from the server is read into a dynamically allocated buffer.
+ * - The response from the server is read into a dynamically allocated buffer (80 bytes).
  * - If memory allocation fails, the ESP device is restarted.
  * - The connection is closed after reading the response.
  *
  * @warning Ensure that free() is called on the returned pointer to avoid memory leaks.
  * @warning The function restarts the ESP device if memory allocation fails.
+ * @note This overload does not update the global `lastMsg`; callers should handle NULL returns.
  *
  * @example
  * char *response = socketClient("192.168.1.100", "BLK");
@@ -249,7 +247,7 @@ void printTokens(float tokens[DEVICES][5])
  *     Serial.println("Failed to get a response from the server.");
  * }
  */
-char *socketClient(char *espServer, char *command)
+char *socketClient(char *espServer, String command)
 {
     int j = 0;
     WiFiClient client;
@@ -270,7 +268,7 @@ char *socketClient(char *espServer, char *command)
         queStat();
         ESP.restart();
     }
-    if (strstr(command, (char *)"RST"))
+    if (command == "RST")
     {
         client.stop();
         sprintf(mem, "Server %s Was Rebooted", espServer);

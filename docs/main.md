@@ -32,7 +32,7 @@ Primary ESP32 client runtime for Blynk integration, server polling, sensor fetch
 
 ## Blynk Handlers
 - `BLYNK_CONNECTED()`: boot state, reset counters, initial sync, fetch row count
-- `BLYNK_WRITE(V18)`: purge IP state from backend via `ipDelete`
+- `BLYNK_WRITE(V18)`: clear backend sensor rows via `deleteAll`
 - `BLYNK_WRITE(V49)`: terminal command parser (see below)
 - `BLYNK_WRITE(BLINK_TST)`: send `BLK` command to all known nodes in `ipMap`
 - `BLYNK_WRITE(V10)`: send `RST` command to selected/all known nodes in `ipMap`
@@ -54,10 +54,10 @@ Unrecognised commands return an error message to the terminal.
 - `performHttpGet(url)` — HTTP GET wrapper, returns response string or empty on failure
 - `getSensorData(sensorsConnected)` — parses `"count|sensor_or_group:ip,location-mac|..."` into runtime maps (`ipMap`, `locMap`, `macMap`, `maclocMap`), then socket-polls each device
 - `getSensorData4User(input, ip)` — polls one node (`ALL`), filters token rows by sensor tag, and writes formatted values to terminal pin V49
-- `processSensorData(tokens, ip)` — converts sensor codes into device names, derives location from the source IP, sends HTTP updates, and refreshes widgets
+- `processSensorData(tokens, ip, mac)` — converts sensor codes into device names, derives location from source MAC mapping, sends HTTP updates, and refreshes widgets
 - `upDateWidget(sensor, tokens[])` — writes sensor values to Blynk virtual pins; supports BME280, BMP390, SHT35, ADS1115 (DS18B20 and BMP280 are not handled — no matching branch exists)
 - `getIP(sensorName)` — case-insensitive substring lookup that returns all matching IPs as a `|`-delimited string with trailing `|` (e.g. `"bme"` matches `"BME280"`)
-- `mac2room(sensor)` — maps a sensor key to room/location text via `macMap` (sensor -> MAC) and `maclocMap` (MAC -> location)
+- `mac2room(sensor)` — maps a sensor key to room/location text via `macMap` (sensor key -> MAC) and `maclocMap` (MAC -> location)
 - `blynkWrite(cmd, index)` — maps Blynk button index to sensor labels (`ADC`, `BME`, `SHT`, `BMP`, `DS1`, `BMX`, `ALL`), strips the `_<n>` suffix from `ipMap` keys before matching, sends `BLK`/`RST`, and mirrors response text to `lastMsg` and V47
 - `isServerConnected(serverIP, port)` — TCP connect/disconnect reachability check (default port 8888)
 - `printUptime()` — formats and writes uptime to Blynk terminal (V49)
@@ -113,7 +113,7 @@ Output behavior:
 | V6  | TEMPV6 | write | Humidity (BME280 / SHT35) |
 | V7  | — | write | passSocket counter |
 | V9  | BLINK_TST | read | Send `BLK` to all nodes (disables refresh timer during run) |
-| V18 | — | read | Purge IP state from backend |
+| V18 | — | read | Clear backend rows via `/deleteALL.php` |
 | V19 | VRECOV | write | recoveredSocket counter |
 | V20 | VFAIL | write | failSocket counter |
 | V25 | — | write | Last boot time |
@@ -137,4 +137,4 @@ All hosted on `192.168.1.252`:
 
 ## Watchdog
 - `lwdtFeed()` refreshes loop heartbeat
-- `lwdtcb()` restarts on stale loop timing (ISR, placed in IRAM)
+- `lwdtcb()` restarts on stale loop timing after queue-drain check (`queStat()`)
