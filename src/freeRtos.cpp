@@ -452,18 +452,18 @@ void setupHTTP_request(String sensorName, String sensorLocation, float tokens[])
 {
     message_t message;
     extern int passSocket;
-    float tmp = tokens[1];
-    if (sensorName.indexOf("ADS1115") >= 0)
-        tmp *= tokens[3];
+    // float token1 = tokens[1];
+    // if (sensorName.indexOf("ADS1115") >= 0)
+    //     token1 *= tokens[3];
 
     if (QueHTTP_Handle != NULL && uxQueueSpacesAvailable(QueHTTP_Handle) > 0)
     {
         String httpRequestData = "api_key=" + phpKey;
         httpRequestData += "&sensor=" + sensorName;
         httpRequestData += "&location=" + sensorLocation;
-        httpRequestData += "&value1=" + String(tmp);
+        httpRequestData += "&value1=" + String(tokens[1]);
         httpRequestData += "&value2=" + String(tokens[2]);
-        httpRequestData += "&value3=" + String(passSocket) + "";
+        httpRequestData += "&value3=" + String(tokens[3]) + "";
         // #define DEBUG
 #ifdef DEBUG
         Serial.printf("http req data %s %d\n", httpRequestData.c_str(), passSocket);

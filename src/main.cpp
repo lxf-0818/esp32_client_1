@@ -129,7 +129,7 @@ HTTPClient http;
 String lastMsg;
 char lastBoot[20], strReason[60];
 BlynkTimer timer;
-float tokens[DEVICES][5] = {};
+float tokens[DEVICES][5];
 bool setAlarm = false;
 Ticker lwdTicker;
 String lastSensorsConnected = "";
@@ -247,6 +247,7 @@ void refreshWidgets() // called every x seconds by SimpleTimer
     Blynk.virtualWrite(V39, tmp);
     return;
   }
+
   int sensorCnt = getSensorData(sensorsConnected);
   if (!sensorCnt)
   {
@@ -469,8 +470,9 @@ void upDateWidget(char *sensor, float tokens[])
   // }
   if (localSensorName == "ADS1115")
   {
-    Blynk.virtualWrite(V2, tokens[1] * tokens[3]); // display Jackery Volt
-    Blynk.virtualWrite(V43, tokens[2]);            // display v++ for esp32
+    // Blynk.virtualWrite(V2, tokens[1] * tokens[3]); // display Jackery Volt
+    Blynk.virtualWrite(V2, tokens[1]);                 // display Jackery Volt
+    Blynk.virtualWrite(V43, tokens[2]);               // display v++ for esp32
 
     return;
   }
@@ -566,7 +568,7 @@ int getSensorData(const String &sensorsConnected)
     while (1)
     {
       int j = sensorName.indexOf("_");
-     // Serial.printf("sensor %s len %d index %d \n", sensorName.c_str(), sensorName.length(),j);
+      // Serial.printf("sensor %s len %d index %d \n", sensorName.c_str(), sensorName.length(),j);
       if (j > 0)
       {
         String name = sensorName.substring(0, j);
@@ -581,7 +583,7 @@ int getSensorData(const String &sensorsConnected)
     }
     locMap[ip.c_str()] = location.c_str();
     maclocMap[mac.c_str()] = location.c_str();
-    // NOTE: socketClient is overloaded; the 2nd parameter selects the client-call variant
+    memset(tokens, 0, sizeof(tokens));
     int rc = socketClient((char *)ip.c_str(), (char *)"ALL"); // read sensor data from connected device
     if (rc)
     {
@@ -903,8 +905,8 @@ void getSensorData4User(String input, String ip)
 
       // For ADS1115, scale the raw reading by the voltage divider ratio (tokens[i][3]).
       // This converts raw ADC counts to the actual measured voltage.
-      if (input.startsWith("adc"))
-        ftmp *= tokens[i][3];
+      // if (input.startsWith("adc"))
+      //   ftmp *= tokens[i][3];
 
       // Resolve the target MAC to a human-readable room/location label.
       String room = mac2room(sensor.c_str());
