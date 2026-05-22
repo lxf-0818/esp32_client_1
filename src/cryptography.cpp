@@ -50,7 +50,7 @@ void aes_init()
 /**
  * @brief Low-level AES-128-CBC encrypt + base64 encode.
  *
- * Encrypts @p msg into the global `ciphertext[]` buffer, then performs a
+ * Encrypts  msg into the global `ciphertext[]` buffer, then performs a
  * round-trip decrypt to verify correctness (prints "match" to Serial on
  * success).
  *
@@ -85,7 +85,7 @@ uint16_t encrypt_to_ciphertext(char *msg, byte iv[])
  *
  * Copies the master IV into the scratch buffer `enc_iv_copy`, calls
  * `encrypt_to_ciphertext()`, then copies the result from the global
- * `ciphertext[]` into @p aes_encrypt.
+ * `ciphertext[]` into  aes_encrypt.
  *
  * @param str         Pointer to the null-terminated plaintext to encrypt.
  * @param aes_encrypt Output buffer for the base64-encoded ciphertext.
@@ -104,11 +104,11 @@ void encrypt_stub(char *str, char *aes_encrypt)
 /**
  * @brief AES-128-CBC decrypt + base64 decode.
  *
- * Decrypts @p msg into @p cleartext and null-terminates the result by
+ * Decrypts encrypt msg into cleartext and null-terminates the result by
  * replacing the first non-printable ASCII character (value < 32) with '\0'.
  *
  * @param msg       Pointer to the base64-encoded ciphertext.
- * @param msgLen    Length of @p msg in bytes.
+ * @param msgLen    Length of  msg in bytes.
  * @param iv        Scratch IV buffer — consumed (mutated) by AESLib. Always
  *                  pass a copy of `aes_iv`, never the master buffer directly.
  * @param cleartext Output buffer for the decrypted plaintext. Must be large
@@ -166,7 +166,7 @@ void decrypt_to_cleartext(char *msg, uint16_t msgLen, byte iv[], char *cleartext
  * @return 0 on success. Does not return on LittleFS mount failure
  *         (`ESP.restart()` is called instead).
  *
- * @warning Caller is responsible for ensuring @p auth, @p ssid, and @p pass
+ * @warning Caller is responsible for ensuring  auth,  ssid, and  pass
  *          are large enough to hold their respective strings.
  * @note `aes_iv` is protected from AESLib mutation by copying it into
  *       `enc_iv_copy` before the decrypt call.
@@ -189,7 +189,7 @@ int decryptWifiCredentials(char *auth, char *ssid, char *pass)
   String blyAuth = readLittle((char *)"/blynkAuth.txt");
   strcpy(auth, blyAuth.c_str());
 
-  // save a copy decrypt_to_cleartext() corrupts byte array aes_iv!
+  // save a copy decrypt_to_cleartext() corrupts byte array aes_iv
   memcpy(enc_iv_copy, aes_iv, sizeof(aes_iv));
   decrypt_to_cleartext((char *)ssid_psw_aes.c_str(), ssid_psw_aes.length(), enc_iv_copy, cleartext);
   String temp = cleartext;
@@ -230,7 +230,7 @@ String readLittle(char *fileName)
  * @brief Reads a comma-separated ASCII hex file from LittleFS into a byte array.
  *
  * Parses lines of the form `a1,b2,c3,...` and stores each converted byte
- * sequentially into @p data[]. Caller must ensure @p data is large enough
+ * sequentially into  data[]. Caller must ensure  data is large enough
  * (typically N_BLOCK = 16 bytes for key/IV files).
  *
  * @param fileName Path to the file on LittleFS (e.g. "/aes.txt", "/iv.txt").

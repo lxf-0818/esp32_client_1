@@ -43,7 +43,7 @@
  *   - `queStat`: Checks the status of queues and ensures all tasks are complete.
  *
  * - **Structs**:
- *   - `socket_t`: Represents a socket recovery task with a function pointer, IP address, and command.
+ *   - `socket_t`: Represents a socket recovery task with a function pointer, IP address, MAC address and command.
  *   - `message_t`: Represents an HTTP message with device information, data, and a key.
  *
  * @note The code is designed to run on an ESP32 microcontroller using the Arduino framework.
@@ -236,7 +236,7 @@ int socketRecovery(char *IP, char *cmd2Send, char *MAC)
 
         socketQue.fun_ptr = &socketClient;
         strcpy(socketQue.ipAddr, IP);
-        strcpy(socketQue.macAddr, MAC);
+        strcpy(socketQue.macAddr, MAC); 
         strcpy(socketQue.cmd, cmd2Send);
         BaseType_t ret = xQueueSend(QueSocket_Handle, (void *)&socketQue, 0);
         if (ret == pdTRUE)
@@ -550,28 +550,3 @@ bool queStat()
     Serial.println("All tasks complete");
     return true;
 }
-
-/**
- * @brief Struct to hold parameters for the ping task.
- */
-
-/**
- * @brief Task to handle ping operations with two string parameters and return results to the caller.
- *
- * @param pvParameters Pointer to a struct containing two strings and a callback function.
- */
-// void taskPing(void *pvParameters)
-// {
-//     PingParams *params = (PingParams *)pvParameters;
-
-//     Serial.printf("Ping Task started with param1: %s, param2: %s\n", params->param1.c_str(), params->param2.c_str());
-
-//     // Example usage of the parameters
-//     for (;;) {
-//         Serial.printf("Pinging with %s and %s...\n", params->param1.c_str(), params->param2.c_str());
-//         if (params->callback) {
-//             params->callback(params->param1, params->param2); // Return results via callback
-//         }
-//         vTaskDelay(1000 / portTICK_PERIOD_MS);
-//     }
-// }
