@@ -31,7 +31,7 @@
  *   - `xMutex_sock`, `xMutex_http`: Mutex handles.
  *   - `QueSocket_Handle`, `QueHTTP_Handle`: Queue handles.
  *   - `socket_task_handle`, `http_task_handle`, `blink_task_handle`: Task handles.
- *   - `lastMsg`, `failSocket`, `passSocket`, `recoveredSocket`, `retry`: Variables for tracking task statuses.
+ *   - `failSocket`, `passSocket`, `recoveredSocket`, `retry`: Variables for tracking task statuses.
  *
  * - **Functions**:
  *   - `initRTOS`: Initializes FreeRTOS tasks, queues, and mutexes.
@@ -73,14 +73,13 @@
 #define MAX_LINE_LENGTH 120
 #define LED_BUILTIN 2
 #define MAX_RETRY 5
-#define DEVICES 6
+#define DEVICES 8
 #define WORDS_PER_BYTE 4
 
 // Global Variables
 SemaphoreHandle_t xMutex_sock, xMutex_http;
 QueueHandle_t QueSocket_Handle, QueHTTP_Handle;
 TaskHandle_t socket_task_handle, http_task_handle, blink_task_handle;
-extern String lastMsg;
 extern int failSocket, passSocket, recoveredSocket, retry;
 extern String phpKey;
 extern float tokens[DEVICES][5];
@@ -225,27 +224,17 @@ void initRTOS()
  */
 int socketRecovery(char *IP, char *cmd2Send, char *MAC)
 {
-    // UBaseType_t spacesLeft, waiting;
     if (QueSocket_Handle == NULL)
         Serial.println("QueSocket_Handle failed");
     else
     {
-        // waiting = uxQueueMessagesWaiting(QueSocket_Handle);
-        // spacesLeft = uxQueueSpacesAvailable(QueSocket_Handle);
-        // Serial.printf("prior to write queue size left %d waiting %d\n", spacesLeft, waiting);
-
         socketQue.fun_ptr = &socketClient;
         strcpy(socketQue.ipAddr, IP);
-        strcpy(socketQue.macAddr, MAC); 
+        strcpy(socketQue.macAddr, MAC);
         strcpy(socketQue.cmd, cmd2Send);
-        BaseType_t ret = xQueueSend(QueSocket_Handle, (void *)&socketQue, 0);
-        if (ret == pdTRUE)
-        {
-            // waiting = uxQueueMessagesWaiting(QueSocket_Handle);
-            // spacesLeft = uxQueueSpacesAvailable(QueSocket_Handle);
-            // Serial.printf("recovering struct send, size left %d waiting %d\n", spacesLeft, waiting);
-        }
-        else if (ret == errQUEUE_FULL)
+        BaseType_t ret = xQueueSend(QueSocket_Handle, (void *)&socketQue,0);
+
+        if (ret == errQUEUE_FULL)
         {
             Serial.println(".......unable to send data to socket  Queue is Full");
             String phpScript = "http://192.168.1.252/deleteIP.php?key=" + (String)IP;
@@ -372,7 +361,6 @@ void taskSQL_HTTP(void *pvParameters)
 void taskSocketRecov(void *pvParameters)
 {
     // moving the following task to core 0 cause task to trigger internal WD timer ??
-    UBaseType_t spacesLeft, waiting;
 
     socket_t socketQue;
     uint32_t socket_delay = *((uint32_t *)pvParameters);
@@ -393,20 +381,15 @@ void taskSocketRecov(void *pvParameters)
                 int x = (*socketQue.fun_ptr)(socketQue.ipAddr, socketQue.cmd);
                 if (!x)
                 {
-                    waiting = uxQueueMessagesWaiting(QueSocket_Handle);
-                    spacesLeft = uxQueueSpacesAvailable(QueSocket_Handle);
                     processSensorData(tokens, socketQue.ipAddr, socketQue.macAddr);
                     recoveredSocket++;
-                    Serial.printf("Recovered last network fail for host:%s waiting %d space left %d \n", socketQue.ipAddr, waiting, spacesLeft);
+                    Serial.printf("Recovered last network fail for host:%s waiting %d space left %d \n", socketQue.ipAddr,
+                                  uxQueueMessagesWaiting(QueSocket_Handle), uxQueueSpacesAvailable(QueSocket_Handle));
                     Serial.printf("passSocket %d failSocket %d  recovered %d retry %d \n", passSocket, failSocket, recoveredSocket, retry);
                 }
                 else
-                {
                     socketRecovery(socketQue.ipAddr, socketQue.cmd, socketQue.macAddr); //  write Fail to que here for recovery****
-                    // waiting = uxQueueMessagesWaiting(QueSocket_Handle);
-                    // spacesLeft = uxQueueSpacesAvailable(QueSocket_Handle);
-                    // Serial.printf(" failed socket size left %d waiting %d\n", spacesLeft, waiting);
-                }
+
                 xSemaphoreGive(xMutex_sock);
             }
         }
@@ -451,7 +434,6 @@ void taskSocketRecov(void *pvParameters)
 void setupHTTP_request(String sensorName, String sensorLocation, float tokens[])
 {
     message_t message;
-    extern int passSocket;
     // float token1 = tokens[1];
     // if (sensorName.indexOf("ADS1115") >= 0)
     //     token1 *= tokens[3];
@@ -504,7 +486,7 @@ void taskBlink(void *pvParameters)
     const TickType_t xDelay = blink_delay / portTICK_PERIOD_MS;
     Serial.printf("Task Blink running on CoreID:%d xDelay:%u ms Free Bytes: %d\n",
                   (unsigned int)xPortGetCoreID(), (unsigned int)xDelay,
-                   uxTaskGetStackHighWaterMark(blink_task_handle) * WORDS_PER_BYTE);
+                  uxTaskGetStackHighWaterMark(blink_task_handle) * WORDS_PER_BYTE);
     for (;;)
     {
         digitalWrite(LED_BUILTIN, LOW);

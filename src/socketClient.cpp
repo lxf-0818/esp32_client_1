@@ -43,10 +43,9 @@
 #define SOCKET_AES
 #define MAX_LINE_LENGTH 120
 #define PORT 8888
-#define DEVICES 6
+#define DEVICES 8
 // #define DEBUG
 
-extern String lastMsg;
 extern int failSocket, passSocket, recoveredSocket, retry;
 extern byte enc_iv_copy[N_BLOCK], aes_iv[N_BLOCK];
 extern char cleartext[INPUT_BUFFER_LIMIT];
@@ -81,11 +80,6 @@ bool queStat();
  * 6. Decrypts the payload with AES-128-CBC when SOCKET_AES is defined.
  * 7. Tokenizes the plaintext records into the global `tokens[DEVICES][5]` float matrix.
  *
- * On failure, the function sets `lastMsg` to a descriptive error string and returns
- * a non-zero code.
- *
- * @note Updates global `lastMsg` on connect failure, timeout, and CRC mismatch.
- *
  * @warning Ensure that the server address and command strings are properly null-terminated.
  * @note Response timeout is 5 seconds in the `client.available()` wait loop.
  *
@@ -100,8 +94,6 @@ int socketClient(char *espServer, char *command)
 
     if (!client.connect(espServer, PORT))
     {
-       // Serial.printf(">>> failed to connect: %s\n", espServer);
-        lastMsg = "failed to connect " + String(espServer);
         client.stop();
         return 1;
     }
@@ -115,8 +107,6 @@ int socketClient(char *espServer, char *command)
     {
         if (millis() - timeout > 5000)
         {
-         //   Serial.println(">>> Client Timeout!");
-            lastMsg = "Client Timeout " + String(espServer);
             client.stop();
             return 2;
         }
@@ -140,7 +130,6 @@ int socketClient(char *espServer, char *command)
     crc.add((uint8_t *)parsed.c_str(), parsed.length());
     if (calculatedCrc != crc.calc())
     {
-        lastMsg = "CRC invalid " + String(espServer);
         client.stop();
         return 3;
     }
@@ -236,7 +225,6 @@ void printTokens(float tokens[DEVICES][5])
  *
  * @warning Ensure that free() is called on the returned pointer to avoid memory leaks.
  * @warning The function restarts the ESP device if memory allocation fails.
- * @note This overload does not update the global `lastMsg`; callers should handle NULL returns.
  *
  * @example
  * char *response = socketClient("192.168.1.100", "BLK");
