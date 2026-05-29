@@ -92,7 +92,6 @@ void taskSQL_HTTP(void *pvParameters);
 void setupHTTP_request(String sensorName, String sensorLocation, float tokens[]);
 void taskBlink(void *pvParameters);
 void processSensorData(float tokens[DEVICES][5], String ip, String mac);
-
 bool queStat();
 int deleteRow(String phpScript);
 int socketClient(char *espServer, char *command);
@@ -530,5 +529,8 @@ bool queStat()
     xSemaphoreTake(xMutex_sock, portMAX_DELAY);
     xSemaphoreTake(xMutex_http, portMAX_DELAY);
     Serial.println("All tasks complete");
+    xSemaphoreGive(xMutex_http);
+    xSemaphoreGive(xMutex_sock);
+    
     return true;
 }

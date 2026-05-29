@@ -113,6 +113,8 @@ void printTokens(float tokens[DEVICES][5]);
 void ping();
 void dumpIP();
 String mac2room(String sensor);
+int parseInput(String input, String validCommand[], int count);
+void displayValidCmdList(String validCommand[], int count);
 
 void setupHTTP_request(String sensorName, String location, float tokens[]);
 
@@ -141,7 +143,12 @@ unsigned long lwdTimeout = LWD_TIMEOUT;
 const char *getRowCnt = "http://192.168.1.252/rows.php";
 const char *deleteAll = "http://192.168.1.252/truncate.php";
 const char *ipList = "http://192.168.1.252/ip.php";
+// #define TEST
+#ifdef TEST
+const char *ipMacList = "http://192.168.1.252/macipTest.php";
+#else
 const char *ipMacList = "http://192.168.1.252/macip.php";
+#endif
 const char *ipDelete = "http://192.168.1.252/deleteIP.php";
 const char *esp_data = "http://192.168.1.252/esp-data.php";
 
@@ -249,11 +256,10 @@ void refreshWidgets() // called every x seconds by SimpleTimer
     Blynk.virtualWrite(V39, tmp);
     return;
   }
-
   int sensorCnt = getSensorData(sensorsConnected);
   if (!sensorCnt)
   {
-    sprintf(tmp, "No sensors connected to network");
+    sprintf(tmp, "No sensors connected to network\n");
     Blynk.virtualWrite(V39, tmp);
     return;
   }
@@ -266,7 +272,6 @@ void refreshWidgets() // called every x seconds by SimpleTimer
 
   if (lastSensorsConnected != sensorsConnected) // only update Blynk terminal when IP list changes
   {
-
     lastSensorsConnected = sensorsConnected;
     Blynk.virtualWrite(V46, "\nStart:\n");
     for (const auto &pair : ipMap)
@@ -275,7 +280,6 @@ void refreshWidgets() // called every x seconds by SimpleTimer
       // ipMap keys are stored as "<SENSOR>_<n>"; strip "_<n>" before display.
       String sensor = pair.first.c_str();
       sensor = sensor.substring(0, sensor.length() - 2);
-      // sprintf(tmp, "Sensor: %s -> %s \nip:%s\n", location.c_str(), sensor.c_str(),pair.second.c_str());
       sprintf(tmp, "Sensor: %s  %s \n", sensor.c_str(), location.c_str());
       Blynk.virtualWrite(V49, tmp);
       sprintf(tmp, "\t\tIP: %s \n", pair.second.c_str());
@@ -619,21 +623,20 @@ int getSensorData(const String &sensorsConnected)
   } // end for
   return cnt;
 }
-int parseInput(String input)
+void displayValidCmdList(String validCommand[], int numberOfElements)
 {
-  String validCommand[] = {
-      "list",
-      "reboot",
-      "ping",
-      "up",
-      "reset",
-      "refr",
-      "i2c",
-      "ip",
-      "all",
-  };
+  char tmp[20];
+  for (int i = 0; i < numberOfElements; i++)
+  {
+    // Serial.println(validCommand[i]);
+    sprintf(tmp, "%s\n", validCommand[i].c_str());
+    Blynk.virtualWrite(V49, tmp);
+  }
+}
+int parseInput(String input, String validCommand[], int numberOfElements)
+{
   char tmp[512];
-  int indexSelected, numberOfElements;
+  int indexSelected;
   bool found = false;
   if (input.isEmpty())
   {
@@ -641,8 +644,6 @@ int parseInput(String input)
     return -1;
   }
   input.toLowerCase();
-  // validate command ,can use the "default" in case statement but rather use that for all  "adc - bmp"
-  numberOfElements = sizeof(validCommand) / sizeof(validCommand[0]);
 
   for (indexSelected = 0; indexSelected < numberOfElements; indexSelected++)
   {
@@ -654,7 +655,7 @@ int parseInput(String input)
   }
   if (!found)
   {
-    sprintf(tmp, "command %s not vaild \n", input.c_str());
+    sprintf(tmp, "command _%s_ not vaild \n", input.c_str());
     Blynk.virtualWrite(V49, tmp);
     return -2;
   }
@@ -699,29 +700,17 @@ BLYNK_WRITE(V49)
       "ip",
       "all",
   };
-  char tmp[512];
-  int indexSelected, numberOfElements;
 
   String input = param.asStr(); // Read the input string from the terminal
-  if (input.isEmpty())
-  {
-    Serial.println("Invalid parameter received.");
-    return;
-  }
-  indexSelected = parseInput(input);
+  int numberOfElements = sizeof(validCommand) / sizeof(validCommand[0]);
+  int indexSelected = parseInput(input, validCommand, numberOfElements);
   if (indexSelected < 0)
     return;
-  Serial.printf("index %d\n", indexSelected);
+
   switch (indexSelected)
   {
   case 0:
-    numberOfElements = sizeof(validCommand) / sizeof(validCommand[0]);
-    for (int i = 0; i < numberOfElements; i++)
-    {
-     // Serial.println(validCommand[i]);
-      sprintf(tmp, "%s %s", validCommand[i].c_str(), "\n");
-      Blynk.virtualWrite(V49, tmp);
-    }
+    displayValidCmdList(validCommand, numberOfElements);
     break;
   case 1:
     if (queStat())
@@ -748,8 +737,10 @@ BLYNK_WRITE(V49)
     dumpIP();
     break;
   case 8:
+    timer.disable(timerID1); // pause periodic refresh to prevent socket contention during test
     for (const auto &pair : ipMap)
       getSensorData4User(pair.first.c_str(), pair.second.c_str());
+    timer.enable(timerID1);
     break;
   }
 }
@@ -757,13 +748,15 @@ void dumpIP()
 {
   char tmp[100];
   std::map<std::string, std::string> reMap;
+  String loc;
   // Remove duplicate IPs because one node may expose multiple sensors in ipMap.
   for (const auto &pair : ipMap)
-    reMap[pair.second.c_str()] = pair.second.c_str();
+    reMap[pair.first.c_str()] = pair.second.c_str();
 
   for (const auto &pair : reMap)
   {
-    sprintf(tmp, "%s %s", pair.second.c_str(), "\n");
+    loc = mac2room(pair.first.c_str());
+    sprintf(tmp, "%s \t %s\n", pair.second.c_str(), loc.c_str());
     Blynk.virtualWrite(V49, tmp);
   }
 }
@@ -912,29 +905,6 @@ String getIP(String sensorName)
 void getSensorData4User(String input, String ip)
 {
   // Map 3-letter sensor prefixes to their device ID codes (used in tokens[i][0]).
-
-  char tmp[512];
-  String sensor = input;
-  input = input.substring(0, 3);
-  input.toLowerCase();
-
-  // Set output label and unit: default is temperature in Fahrenheit.
-  String label = "Temp", postFix = "F";
-  if (input.startsWith("adc"))
-  {
-    // ADS1115 (analog-to-digital converter) outputs voltage, not temperature.
-    label = "Volt";
-    postFix = "V";
-  }
-
-  // Poll the target IP for sensor data using the "ALL" command.
-  // Return code 0 = success; non-zero = socket error.
-  if (socketClient((char *)ip.c_str(), (char *)"ALL"))
-  {
-    Serial.println("socketClient() failed");
-    return;
-  }
-  // Static to avoid recreation on each function call.
   static const std::map<String, int> tagMap =
       {
           {"bmx", 77},  // BMP390
@@ -944,6 +914,30 @@ void getSensorData4User(String input, String ip)
           {"adc", 48},  // ADS1115
           {"ds1", 28}}; // DS18B20
 
+  char tmp[512];
+  String sensor = input;
+  input = input.substring(0, 3);
+  input.toLowerCase();
+
+  // Set output label and unit: default is temperature in Fahrenheit.
+  String label = "Temp", postFix = "F", postFix2 = "%";
+  if (input.startsWith("adc"))
+  {
+    // ADS1115 (analog-to-digital converter) outputs voltage
+    label = "Volt";
+    postFix = "V";
+    postFix2 = "V";
+  }
+  if (input.startsWith("bmp") || input.startsWith("bmx"))
+    postFix2 = "Pa";
+
+  // Poll the target IP for sensor data using the "ALL" command.
+  // Return code 0 = success; non-zero = socket error.
+  if (socketClient((char *)ip.c_str(), (char *)"ALL"))
+  {
+    Serial.println("socketClient() failed");
+    return;
+  }
   // Look up the user-provided sensor prefix in the tag map.
   auto it = tagMap.find(input);
   if (it == tagMap.end())
@@ -961,16 +955,13 @@ void getSensorData4User(String input, String ip)
     if (device == tokens[i][0])
     {
       deviceFound = true;
-
-      // Extract the sensor reading from the token buffer.
-      float ftmp = tokens[i][1];
-
       // Resolve the target MAC to a human-readable room/location label.
       String room = mac2room(sensor.c_str());
-
       // Format and send one line to the Blynk terminal (V49).
-      // Format: "<label> <value> <unit> <location>\n"
-      sprintf(tmp, "%s %f %s %s \n", label.c_str(), ftmp, postFix.c_str(), room.c_str());
+      // Format: "<label> <primary_value> <unit1> <secondary_value> <unit2> <location>\n"
+      // Example: "Temp 72.5 F 41.0 % Mud Room"
+      sprintf(tmp, "%s %.1f %s %.1f %s %s \n",
+              label.c_str(), tokens[i][1], postFix.c_str(), tokens[i][2], postFix2.c_str(), room.c_str());
       Blynk.virtualWrite(V49, tmp);
     }
   }
@@ -996,7 +987,7 @@ void ping()
   // inside a non-BLYNK_WRITE context had no effect (known platform limitation).
   // The `_i` index suffix appended to ipMap keys by getSensorData() is stripped before
   // display so the user-facing sensor name is clean (e.g. "BME280" not "BME280_0").
-  int dead, alive;
+  int dead, alive, totalDead = 0, totalPass = 0;
   unsigned long start;
   char line[50], line1[50];
   for (const auto &pair : ipMap)
@@ -1015,6 +1006,8 @@ void ping()
       else
         dead++;
     }
+    totalPass += alive;
+    totalDead += dead;
     sprintf(line1, "\tpass %d dead %d  time: %lu ms\n", alive, dead, millis() - start);
     strcat(line, line1);
     Blynk.virtualWrite(V49, line);
@@ -1031,9 +1024,13 @@ void ping()
     else
       alive++;
   }
+  totalPass += alive;
+  totalDead += dead;
   sprintf(line1, "\n\t pass %d dead %d time: %lu ms\n", alive, dead, millis() - start);
   strcat(line, line1);
   Blynk.virtualWrite(V49, line);
+  sprintf(line1, "Summary alive: %d dead:%d\n", totalPass, totalDead);
+  Blynk.virtualWrite(V49, line1);
 }
 
 /**
@@ -1170,8 +1167,6 @@ void processSensorData(float tokens[DEVICES][5], String ip, String mac)
  */
 void dumpI2C()
 {
-  // 76:4(D2),5(D1)|77:4(D2),14(D5)|
-  // 76:4(D2),5(D1)|
   int index, index1, index2;
   char *results, tmp[100];
   std::map<std::string, std::string> reMap;
@@ -1183,20 +1178,15 @@ void dumpI2C()
   for (const auto &pair : reMap)
   {
     results = socketClient((char *)pair.second.c_str(), (String) "I2C");
-    Serial.printf("ip:%s i2c: %s\n",pair.second.c_str(), results);
-    // String loc = mac2room(pair.first.c_str());
     String IP = pair.second.c_str();
     String data = results;
-
-    // Response format: "<tag>:<SDA>,<SCL>|...|"
-    // Example: "76:4(D2),5(D1)|77:4(D2),14(D5)|"
     while (1)
     {
       // if multiple I2C sensors on device process to end of string
+      // 76:D2(4),D1(5))|77:D2(3),D5(0)|
       index = data.indexOf(":");
       if (index == -1)
         break;
-
       // Parse one tuple and print a human-readable line.
       String i2cAddress = data.substring(0, index);
       index1 = data.indexOf(",");
