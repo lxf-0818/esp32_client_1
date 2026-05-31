@@ -1,7 +1,7 @@
 # main.cpp
 
 ## Purpose
-Primary ESP32 client runtime for Blynk integration, server polling, sensor fetch, and watchdog handling.
+Primary ESP32 client runtime for Blynk integration, backend polling, sensor fetch, terminal utilities, and watchdog handling.
 
 ## Runtime Loop
 - `setup()`:
@@ -16,125 +16,141 @@ Primary ESP32 client runtime for Blynk integration, server polling, sensor fetch
   - runs Blynk
   - runs timer callbacks
 
+## Data Model
+- `net_t` stores one node record:
+  - `ipAddress`
+  - `macAddress`
+  - `location`
+- `netMap` (`map<string, net_t>`) is the primary runtime map.
+  - key format: `<SENSOR>_<n>` (for example `BME_0`)
+  - value: full node metadata (`net_t`)
+
 ## Widget Refresh Path
 `refreshWidgets()`:
-1. GET sensor roster from `macip.php` (`ipMacList`) via `performHttpGet()`
-2. parse with `getSensorData()` into `ipMap` (sensor key -> IP), `locMap` (IP -> location), `macMap` (sensor key -> MAC), and `maclocMap` (MAC -> location)
-3. socket poll each server with `ALL`
-4. update Blynk terminal only when sensor list changes 
-5. update Blynk counters (V7, V20, V19, V34) and last message (V47)
-6. on error, writes status to V39 and returns early
-
-## Runtime Maps
-- `ipMap` (`map<string,string>`) stores sensor key to IP entries. Keys use the format `<SENSOR>_<n>` to keep duplicate sensor types unique.
-- `locMap` (`map<string,string>`) stores IP to location entries for user-facing output.
-- Both maps are cleared and rebuilt during each `getSensorData()` refresh cycle so stale nodes are removed.
+1. checks Blynk connection and restarts ESP32 if disconnected
+2. GET roster from `macip.php` (`ipMacList`) via `performHttpGet()`
+3. parses roster with `getSensorData()` and rebuilds `netMap`
+4. socket-polls each parsed node with `ALL`
+5. updates Blynk counters/status (`V51`, `V7`, `V20`, `V19`, `V34`, `V47`)
+6. updates terminal only when roster payload changes (`lastSensorsConnected`)
+7. on error, writes status to `V39` and returns early
 
 ## Blynk Handlers
-- `BLYNK_CONNECTED()`: boot state, reset counters, initial sync, fetch row count
-- `BLYNK_WRITE(V18)`: clear backend sensor rows via `deleteAll`
-- `BLYNK_WRITE(V49)`: terminal command parser (see below)
-- `BLYNK_WRITE(BLINK_TST)`: send `BLK` command to all known nodes in `ipMap`
-- `BLYNK_WRITE(V10)`: send `RST` command to selected/all known nodes in `ipMap`
+- `BLYNK_CONNECTED()`: boot state, counter reset, row-count sync, widget label setup
+- `BLYNK_WRITE(V18)`: clear backend rows via `deleteAll`
+- `BLYNK_WRITE(V49)`: terminal command parser
+- `BLYNK_WRITE(BLINK_TST)`: send `BLK` by selected sensor group
+- `BLYNK_WRITE(V10)`: send `RST` by selected sensor group
 
-Supported terminal commands:
-- `list` — show valid commands
-- `reboot` — restart ESP32
-- `ping` — TCP ping all registered sensors (4 attempts each) + HTTP ping
-- `up` — print uptime (days/hours/minutes/seconds)
-- `reset` — reset fail/recovered/retry counters
-- `refr` — clear `lastSensorsConnected` and force an immediate `refreshWidgets()` cycle
-- `all` — iterate all entries in `ipMap` and print one live reading per node via `getSensorData4User()`
+Supported terminal commands (`V49`):
+- `list` - show valid commands
+- `reboot` - restart ESP32
+- `ping` - TCP ping all registered nodes (4 attempts each) + HTTP ping backend
+- `up` - print uptime (days/hours/minutes/seconds)
+- `reset` - reset fail/recovered/retry counters
+- `refr` - force an immediate refresh cycle
+- `i2c` - fetch and print node I2C mappings
+- `ip` - print de-duplicated IP/location list
+- `all` - print one live reading per registered sensor key
 
-Command parsing uses `startsWith(...)`, so a valid command prefix is accepted.
-
-Unrecognised commands return an error message to the terminal.
+Command parsing uses `startsWith(...)`, so valid command prefixes are accepted.
 
 ## Helper Functions
-- `performHttpGet(url)` — HTTP GET wrapper, returns response string or empty on failure
-- `getSensorData(sensorsConnected)` — parses `"count|sensor_or_group:ip,location-mac|..."` into runtime maps (`ipMap`, `locMap`, `macMap`, `maclocMap`), then socket-polls each device
-- `getSensorData4User(input, ip)` — polls one node (`ALL`), filters token rows by sensor tag, and writes formatted values to terminal pin V49
-- `processSensorData(tokens, ip, mac)` — converts sensor codes into device names, derives location from source MAC mapping, sends HTTP updates, and refreshes widgets
-- `upDateWidget(sensor, tokens[])` — writes sensor values to Blynk virtual pins; supports BME280, BMP390, SHT35, ADS1115 (DS18B20 and BMP280 are not handled — no matching branch exists)
-- `getIP(sensorName)` — case-insensitive substring lookup that returns all matching IPs as a `|`-delimited string with trailing `|` (e.g. `"bme"` matches `"BME280"`)
-- `mac2room(sensor)` — maps a sensor key to room/location text via `macMap` (sensor key -> MAC) and `maclocMap` (MAC -> location)
-- `blynkWrite(cmd, index)` — maps Blynk button index to sensor labels (`ADC`, `BME`, `SHT`, `BMP`, `DS1`, `BMX`, `ALL`), strips the `_<n>` suffix from `ipMap` keys before matching, sends `BLK`/`RST`, and mirrors response text to `lastMsg` and V47
-- `isServerConnected(serverIP, port)` — TCP connect/disconnect reachability check (default port 8888)
-- `printUptime()` — formats and writes uptime to Blynk terminal (V49)
-- `checkSSD()` — I2C probe for SSD1306 OLED at `0x3C`
-- `flashSSD()` — displays "ESP32 Client PIO" and local IP on OLED
-- `generateInterrupt()` — manually invokes watchdog ISR for testing
-- `ping()` — TCP-pings every entry in `ipMap` 4 times and HTTP-pings `ipList` 4 times; writes pass/dead counts and elapsed time to V49
+- `performHttpGet(url)` - HTTP GET wrapper, returns payload or empty string on failure
+- `getSensorData(sensorsConnected)` - parses roster payload and rebuilds `netMap`; polls each node
+- `getSensorData4User(input, ip)` - polls one node and prints filtered reading(s) to terminal
+- `processSensorData(tokens, sensorKey)` - maps token device codes to sensor names and forwards data to `setupHTTP_request()`
+- `upDateWidget(sensor, tokens[])` - updates selected Blynk virtual pins
+  - note: call from `processSensorData()` is currently commented out
+- `mac2room(sensorKey)` - resolves location directly from `netMap`
+- `blynkWrite(cmd, index)` - maps segmented-button index to sensor groups and sends `BLK`/`RST`
+- `dumpIP()` - prints de-duplicated `ipAddress -> location` lines
+- `dumpI2C()` - requests `I2C` from each registered key and prints parsed tuples
+- `ping()` - TCP/HTTP ping utility with pass/dead summary
 
 ## getSensorData Flow
-1. Read payload header `<rows>` from `"<rows>|..."`.
-2. Extract the tuple stream body: `"sensor_or_group:ip,location-mac|..."`.
-3. Clear and rebuild runtime maps for a clean refresh cycle:
-  - `ipMap`: `<SENSOR>_<n>` -> IP
-  - `locMap`: IP -> location
-  - `macMap`: `<SENSOR>_<n>` -> MAC
-  - `maclocMap`: MAC -> location
-4. For each tuple, split grouped sensor names like `BME_BMP` into separate keys (`BME_<n>`, `BMP_<n+1>`).
-5. Poll each parsed IP with socket command `ALL`.
-6. On poll failure, queue recovery (`socketRecovery`) and increment `failSocket`.
-7. Pass token buffer to `processSensorData()` to update widgets and backend values.
+Expected payload format from backend:
+`<rows>|<SENSOR_OR_GROUP>:<IP>,<LOCATION>-<MAC>|...|`
+
+Example:
+`2|BME:192.168.1.10,Mud Room-58:BF:25:DA:AE:59|BMX_BME:192.168.1.13,Main Room-48:55:19:ED:B8:B4|`
+
+Flow:
+1. read row count from header before first `|`
+2. clear `netMap`
+3. for each tuple, parse sensor/group, IP, location, MAC
+4. split grouped names like `BME_BMP` into separate keys (`BME_<n>`, `BMP_<n+1>`)
+5. store each key in `netMap`
+6. poll node with `socketClient(ip, "ALL")`
+7. on failure, queue recovery via `socketRecovery(...)` and increment `failSocket`
+8. on success, pass tokens to `processSensorData(...)`
 
 Notes:
-- Maps are rebuilt each cycle to remove stale/disconnected devices.
-- The function returns the row count parsed from the payload header.
+- maps are rebuilt each cycle to remove stale/disconnected nodes
+- function return value is count of expanded sensor keys inserted
 
 ## getSensorData4User Flow
 Used by terminal command `all`.
 
-1. Receives a 3-letter sensor prefix and one target IP.
-2. Sends socket command `ALL` to that IP.
-3. Maps the prefix to expected device tag and scans `tokens[i][0]` for matching rows.
-4. Formats result text and writes one line per matched device to V49.
+1. receives sensor key text and target IP
+2. derives 3-letter prefix and maps it to a device code
+3. polls node with socket command `ALL`
+4. scans token rows for matching device code
+5. writes formatted lines to terminal `V49`
 
-Tag mapping used by the function:
+Tag mapping:
 - `bmx` -> `77` (BMP390)
 - `bme` -> `76` (BME280)
-- `bmp` -> `58` (BMP280, chip ID 0x58)
+- `bmp` -> `58` (BMP280)
 - `sht` -> `44` (SHT35)
 - `adc` -> `48` (ADS1115)
 - `ds1` -> `28` (DS18B20)
 
 Output behavior:
-- Default output label is `Temp` with unit `F`.
-- For `adc`, output label is `Volt` with unit `V`.
-- For `adc`, value is scaled by divider ratio (`tokens[i][3]`) before display.
-- If socket polling fails, a serial error is printed (`socketClient() failed`).
+- default label/units: `Temp`, `F`, `%`
+- for `adc`: `Volt`, `V`, `V`
+- for `bmp` or `bmx`, second unit is `Pa`
+- output format:
+  - `<label> <primary_value> <unit1> <secondary_value> <unit2> <location>`
 
 ## Virtual Pin Map
 | Pin | Alias | Direction | Description |
 |-----|-------|-----------|-------------|
-| V2  | GAUGE_HOUSE | write | Jackery voltage (ADS1115: tokens[1] × tokens[3]) |
+| V2  | GAUGE_HOUSE | write | Jackery voltage (ADS1115: `tokens[1]`) |
 | V4  | TEMPV4 | write | Temperature (BME280 / BMP390 / SHT35) |
 | V6  | TEMPV6 | write | Humidity (BME280 / SHT35) |
-| V7  | — | write | passSocket counter |
-| V9  | BLINK_TST | read | Send `BLK` to all nodes (disables refresh timer during run) |
-| V18 | — | read | Clear backend rows via `/deleteALL.php` |
+| V7  | - | write | passSocket counter |
+| V9  | BLINK_TST | read | Segmented control for `BLK` dispatch |
+| V10 | - | read | Segmented control for `RST` dispatch |
+| V18 | - | read | Clear backend rows (`deleteAll`) |
 | V19 | VRECOV | write | recoveredSocket counter |
 | V20 | VFAIL | write | failSocket counter |
-| V25 | — | write | Last boot time |
-| V26 | — | write | Reset reason |
+| V25 | - | write | Last boot time |
+| V26 | - | write | Reset reason |
 | V34 | VRETRY | write | retry counter |
-| V39 | — | write | Error / boot status messages |
-| V49 | — | read/write | Terminal (command input + output) |
-| V46 | — | write | Terminal refresh start marker (`"Start:"`) when sensor list changes |
-| V47 | — | write | Last status / warning message (`lastMsg`), including latest `BLK`/`RST` response from `blynkWrite()` |
-| V43 | — | write | ESP32 supply voltage (ADS1115: tokens[2]) |
+| V39 | - | write | Error / boot status messages |
+| V43 | - | write | ESP32 supply voltage (`tokens[2]`) |
+| V46 | - | write | Terminal refresh marker (`"Start:"`) |
+| V47 | - | write | Last status / warning message |
+| V49 | - | read/write | Terminal input/output |
+| V51 | - | write | Current expanded sensor count |
 
 ## Server Endpoints
 All hosted on `192.168.1.252`:
+
 | Variable | URL | Purpose |
 |----------|-----|---------|
 | `ipList` | `/ip.php` | List connected sensors and IPs |
 | `ipDelete` | `/deleteIP.php` | Purge IP registrations |
-| `getRowCnt` | `/rows.php` | Row count (initialises passSocket) |
-| `deleteAll` | `/deleteALL.php` | Delete all records |
-| `esp_data` | `/esp-data.php` | Post sensor data |
+| `getRowCnt` | `/rows.php` | Row count bootstrap (initialises `passSocket`) |
+| `deleteAll` | `/truncate.php` | Delete all backend records |
+| `esp_data` | `/esp-data.php` | Store sensor data |
+| `ipMacList` | `/macip.php` (or `/macipTest.php` under `TEST`) | Sensor roster including sensor group, IP, location, MAC |
 
 ## Watchdog
 - `lwdtFeed()` refreshes loop heartbeat
-- `lwdtcb()` restarts on stale loop timing after queue-drain check (`queStat()`)
+- `lwdtcb()` restarts device if heartbeat timing is stale/inconsistent
+
+## Notes
+- `getIP(...)` is currently commented out.
+- `netword` exists as a scratch `net_t` instance but is not used in the active flow.

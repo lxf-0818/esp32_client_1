@@ -91,7 +91,7 @@ void taskSocketRecov(void *pvParameters);
 void taskSQL_HTTP(void *pvParameters);
 void setupHTTP_request(String sensorName, String sensorLocation, float tokens[]);
 void taskBlink(void *pvParameters);
-void processSensorData(float tokens[DEVICES][5], String ip, String mac);
+void processSensorData(float tokens[DEVICES][5],  String sensor);
 bool queStat();
 int deleteRow(String phpScript);
 int socketClient(char *espServer, char *command);
@@ -113,7 +113,7 @@ typedef struct
     int (*fun_ptr)(char *, char *);
     char ipAddr[20];
     char cmd[20];
-    char macAddr[20];
+    char sensor[20];
 } socket_t;
 socket_t socketQue;
 
@@ -221,7 +221,7 @@ void initRTOS()
  *       If the queue is full, the function calls `deleteIP.php?key=<ip>`, resets
  *       the queue, and clears recovery counters.
  */
-int socketRecovery(char *IP, char *cmd2Send, char *MAC)
+int socketRecovery(char *IP, char *cmd2Send, char *sensor)
 {
     if (QueSocket_Handle == NULL)
         Serial.println("QueSocket_Handle failed");
@@ -229,9 +229,9 @@ int socketRecovery(char *IP, char *cmd2Send, char *MAC)
     {
         socketQue.fun_ptr = &socketClient;
         strcpy(socketQue.ipAddr, IP);
-        strcpy(socketQue.macAddr, MAC);
+        strcpy(socketQue.sensor, sensor);
         strcpy(socketQue.cmd, cmd2Send);
-        BaseType_t ret = xQueueSend(QueSocket_Handle, (void *)&socketQue,0);
+        BaseType_t ret = xQueueSend(QueSocket_Handle, (void *)&socketQue, 0);
 
         if (ret == errQUEUE_FULL)
         {
@@ -380,14 +380,14 @@ void taskSocketRecov(void *pvParameters)
                 int x = (*socketQue.fun_ptr)(socketQue.ipAddr, socketQue.cmd);
                 if (!x)
                 {
-                    processSensorData(tokens, socketQue.ipAddr, socketQue.macAddr);
+                    processSensorData(tokens,socketQue.sensor);
                     recoveredSocket++;
                     Serial.printf("Recovered last network fail for host:%s waiting %d space left %d \n", socketQue.ipAddr,
                                   uxQueueMessagesWaiting(QueSocket_Handle), uxQueueSpacesAvailable(QueSocket_Handle));
                     Serial.printf("passSocket %d failSocket %d  recovered %d retry %d \n", passSocket, failSocket, recoveredSocket, retry);
                 }
                 else
-                    socketRecovery(socketQue.ipAddr, socketQue.cmd, socketQue.macAddr); //  write Fail to que here for recovery****
+                    socketRecovery(socketQue.ipAddr, socketQue.cmd, socketQue.sensor); //  write Fail to que here for recovery****
 
                 xSemaphoreGive(xMutex_sock);
             }
@@ -445,7 +445,7 @@ void setupHTTP_request(String sensorName, String sensorLocation, float tokens[])
         httpRequestData += "&value1=" + String(tokens[1]);
         httpRequestData += "&value2=" + String(tokens[2]);
         httpRequestData += "&value3=" + String(tokens[3]) + "";
-        // #define DEBUG
+//#define DEBUG
 #ifdef DEBUG
         Serial.printf("http req data %s %d\n", httpRequestData.c_str(), passSocket);
 #endif
@@ -531,6 +531,6 @@ bool queStat()
     Serial.println("All tasks complete");
     xSemaphoreGive(xMutex_http);
     xSemaphoreGive(xMutex_sock);
-    
+
     return true;
 }

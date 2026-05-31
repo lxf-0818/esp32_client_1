@@ -96,7 +96,7 @@ void getBootTime(char *lastBook, char *strReason);
 int getSensorData(const String &sensorsConnected);
 void getSensorData4User(String input, String ip);
 int socketRecovery(char *IP, char *cmd2Send, char *MAC);
-void processSensorData(float tokens[DEVICES][5], String ip, String mac);
+void processSensorData(float tokens[DEVICES][5], String sesnor);
 String performHttpGet(const char *url);
 int decryptWifiCredentials(char *auth, char *ssid, char *psw);
 int socketClient(char *espServer, char *command);
@@ -133,12 +133,7 @@ net_t netword;
 // Indexed sensor map: key format is "<SENSOR>_<index>" (for example "BME_0").
 std::map<std::string, net_t> netMap;
 
-std::map<std::string, std::string> locMap;
-
-std::map<std::string, std::string> macMap;
-std::map<std::string, std::string> maclocMap;
-
-String ip, mac, location;
+// String ip, mac, location;
 const uint16_t port = 8888;
 String sensorName = "NO DEVICE";
 int failSocket, passSocket, recoveredSocket, retry, timerID1, passPost;
@@ -560,6 +555,7 @@ String performHttpGet(const char *url)
 int getSensorData(const String &sensorsConnected)
 {
   int z = 0, cnt = 0;
+  String name;
   // Header before first '|' is row count sent by the backend.
   String rows = sensorsConnected.substring(0, sensorsConnected.indexOf("|"));
   int numberOfRows = atoi(rows.c_str());
@@ -569,10 +565,6 @@ int getSensorData(const String &sensorsConnected)
                                                       sensorsConnected.lastIndexOf("|"));
   // Rebuild maps each refresh so stale/disconnected devices are removed.
   netMap.clear();
-  locMap.clear();
-
-  maclocMap.clear();
-  macMap.clear();
 
   for (int i = 0; i < numberOfRows; i++)
   {
@@ -583,13 +575,13 @@ int getSensorData(const String &sensorsConnected)
     String sensorName = sensorConnected.substring(0, index) + "_"; // add end of string token
 
     int index1 = sensorConnected.indexOf(",");
-    ip = sensorConnected.substring(index + 1, index1);
+    String ip = sensorConnected.substring(index + 1, index1);
 
     int index2 = sensorConnected.indexOf("-");
-    location = sensorConnected.substring(index1 + 1, index2);
+    String location = sensorConnected.substring(index1 + 1, index2);
 
     int index3 = sensorConnected.indexOf("|");
-    mac = sensorConnected.substring(index2 + 1, index3);
+    String mac = sensorConnected.substring(index2 + 1, index3);
 
     sensorConnected = sensorConnected.substring(index3 + 1); // Move to the next device in string
 
@@ -600,21 +592,16 @@ int getSensorData(const String &sensorsConnected)
       // Serial.printf("sensor %s len %d index %d \n", sensorName.c_str(), sensorName.length(),j);
       if (j > 0)
       {
-        String name = sensorName.substring(0, j);
+        name = sensorName.substring(0, j);
         name = name + "_" + z++; // make unique key
         netMap[name.c_str()] = {ip.c_str(), mac.c_str(), location.c_str()};
-
         sensorName = sensorName.substring(j + 1);
         cnt++;
       }
       else
         break;
     }
-    locMap[ip.c_str()] = location.c_str();
-    maclocMap[mac.c_str()] = location.c_str();
-
     memset(tokens, 0, sizeof(tokens));
-
     int rc = socketClient((char *)ip.c_str(), (char *)"ALL"); // read sensor data from connected device
     if (rc)
     {
@@ -634,11 +621,13 @@ int getSensorData(const String &sensorsConnected)
       lastMsg = "socketClient failed:" + ip;
       // On socket failure, queue recovery and account the failed poll.
       Serial.printf("%s %s %s rc: %d\n", error.c_str(), ip.c_str(), location.c_str(), rc);
-      socketRecovery((char *)ip.c_str(), (char *)"ALL", (char *)mac.c_str()); // current failed write to error recovery queue
+      socketRecovery((char *)ip.c_str(), (char *)"ALL", (char *)name.c_str()); // current failed write to error recovery queue
       failSocket++;
     }
     else
-      processSensorData(tokens, ip.c_str(), mac.c_str());
+    {
+      processSensorData(tokens, name.c_str());
+    }
 
   } // end for
 
@@ -774,15 +763,29 @@ BLYNK_WRITE(V49)
     break;
   }
 }
+/**
+ * @brief Prints a de-duplicated IP/location list to the Blynk terminal.
+ *
+ * Builds a temporary map keyed by `ipAddress` from `netMap` so devices that expose
+ * multiple sensor keys are shown once. For each unique IP, writes one formatted line
+ * to virtual terminal V49.
+ *
+ * Output format per line:
+ * - `<ipAddress>\t <location>`
+ */
 void dumpIP()
 {
   char tmp[100];
-  String loc;
-
+  std::map<std::string, net_t> reMap;
   for (const auto &pair : netMap)
   {
-    loc = pair.second.location.c_str();
-    sprintf(tmp, "%12s\t %s\n", pair.second.ipAddress.c_str(), loc.c_str());
+    reMap[pair.second.ipAddress.c_str()] = {pair.second.ipAddress.c_str(),
+                                            pair.second.macAddress.c_str(),
+                                            pair.second.location.c_str()};
+  }
+  for (const auto &pair : reMap)
+  {
+    sprintf(tmp, "%12s\t %s\n", pair.second.ipAddress.c_str(), pair.second.location.c_str());
     Blynk.virtualWrite(V49, tmp);
   }
 }
@@ -907,7 +910,6 @@ bool checkSSD()
 //     mapKey = pair.first.c_str();
 //     if (mapKey.indexOf(sensorKey) >= 0)
 
-    
 //     {
 //       returnIPstring.concat(pair.second.c_str());
 //       returnIPstring.concat("|");
@@ -971,9 +973,6 @@ void getSensorData4User(String input, String ip)
       deviceFound = true;
       // Resolve the target MAC to a human-readable room/location label.
       String room = mac2room(sensor.c_str());
-      // Format and send one line to the Blynk terminal (V49).
-      // Format: "<label> <primary_value> <unit1> <secondary_value> <unit2> <location>\n"
-      // Example: "Temp 72.5 F 41.0 % Mud Room"
       sprintf(tmp, "%s %.1f %s %.1f %s %s \n",
               label.c_str(), tokens[i][1], postFix.c_str(), tokens[i][2], postFix2.c_str(), room.c_str());
       Blynk.virtualWrite(V49, tmp);
@@ -1010,8 +1009,8 @@ void ping()
     start = millis();
 
     String room = pair.second.location.c_str();
+    String IP = pair.second.ipAddress.c_str();
     int length = pair.first.length();
-
     sprintf(line, "%s %s: %s\n", pair.first.substr(0, length - 2).c_str(), pair.second.ipAddress.c_str(), room.c_str());
     for (int j = 0; j < 4; j++)
     {
@@ -1050,7 +1049,7 @@ void ping()
 /**
  * @brief Resolves a sensor  address to its configured room/location label.
  *
- * Looks up the provided IP in `locMap`, which is rebuilt in `getSensorData()`
+ * Looks up the provided IP in `maclocMap`, which is rebuilt in `getSensorData()`
  * from the backend roster payload. Returns an empty string if the IP is not
  * currently known.
  *
@@ -1061,14 +1060,9 @@ String mac2room(String sensor)
 {
   String location = "";
   // Map sensor MAC to room label for user-friendly terminal output.
-  auto it = macMap.find(sensor.c_str());
-  if (it != macMap.end())
-  {
-    auto it1 = maclocMap.find(it->second.c_str());
-    if (it1 != maclocMap.end())
-      location = it1->second.c_str();
-  }
-
+  auto it = netMap.find(sensor.c_str());
+  if (it != netMap.end())
+    location = it->second.location.c_str();
   return location;
 }
 
@@ -1126,7 +1120,7 @@ void blynkWrite(String cmd, int index)
  * @param ip Source IP address for this payload (currently informational).
  * @param mac Source MAC address used to resolve room/location via `maclocMap`.
  */
-void processSensorData(float tokens[DEVICES][5], String ip, String mac)
+void processSensorData(float tokens[DEVICES][5], String sensor)
 {
   const std::map<int, const char *> sensorMap =
       {
@@ -1137,14 +1131,12 @@ void processSensorData(float tokens[DEVICES][5], String ip, String mac)
           {48, "ADS1115"},
           {28, "DS1"}};
 
-  char sensor[10];
-
   String location = "";
 
-  auto it1 = maclocMap.find(mac.c_str());
-  if (it1 != maclocMap.end())
+  auto it1 = netMap.find(sensor.c_str());
+  if (it1 != netMap.end())
   {
-    location = it1->second.c_str();
+    location = it1->second.location.c_str();
     if (location.isEmpty())
       Serial.printf("mac address not found\n");
 
@@ -1156,10 +1148,9 @@ void processSensorData(float tokens[DEVICES][5], String ip, String mac)
       auto it = sensorMap.find(sensorCode);
       if (it != sensorMap.end())
       {
-        strcpy(sensor, it->second);
         passSocket++;
-        setupHTTP_request(sensor, location, tokens[i]);
-        upDateWidget(sensor, tokens[i]);
+        setupHTTP_request(it->second, location, tokens[i]);
+        //   upDateWidget(it->second, tokens[i]);
       }
       else
       {
@@ -1183,12 +1174,18 @@ void dumpI2C()
 {
   int index, index1, index2;
   char *results, tmp[100];
- // std::map<std::string, std::string> reMap;
+  std::map<std::string, net_t> reMap;
+
   // Remove duplicate IPs because one node may expose multiple sensors in netMap.
- 
+  for (const auto &pair : netMap)
+  {
+    reMap[pair.second.ipAddress.c_str()] = {pair.second.ipAddress.c_str(),
+                                            pair.second.macAddress.c_str(),
+                                            pair.second.location.c_str()};
+  }
 
   // Poll each unique node for its I2C map and stream decoded lines to Blynk terminal.
-  for (const auto &pair : netMap)
+  for (const auto &pair : reMap)
   {
     results = socketClient((char *)pair.second.ipAddress.c_str(), (String) "I2C");
     String IP = pair.second.ipAddress.c_str();
