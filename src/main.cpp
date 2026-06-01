@@ -583,7 +583,8 @@ int getSensorData(const String &sensorsConnected)
     int index3 = sensorConnected.indexOf("|");
     String mac = sensorConnected.substring(index2 + 1, index3);
 
-    sensorConnected = sensorConnected.substring(index3 + 1); // Move to the next device in string
+    // Point to the next char in the "device string" for next pass
+    sensorConnected = sensorConnected.substring(index3 + 1);
 
     // Expand grouped names like "BME_BMP" or single "BME" into unique keys: BME_<z>, BMP_<z+1>.
     while (1)
@@ -756,7 +757,7 @@ BLYNK_WRITE(V49)
     dumpIP();
     break;
   case 8:
-    timer.disable(timerID1); // pause periodic refresh to prevent socket contention during test
+    timer.disable(timerID1); // pause periodic refresh to prevent socket contention during user input
     for (const auto &pair : netMap)
       getSensorData4User(pair.first.c_str(), pair.second.ipAddress.c_str());
     timer.enable(timerID1);
@@ -918,7 +919,7 @@ bool checkSSD()
 //   return returnIPstring;
 // }
 
-void getSensorData4User(String input, String ip)
+void getSensorData4User(String userInput, String ip)
 {
   // Map 3-letter sensor prefixes to their device ID codes (used in tokens[i][0]).
   static const std::map<String, int> tagMap =
@@ -931,34 +932,35 @@ void getSensorData4User(String input, String ip)
           {"ds1", 28}}; // DS18B20
 
   char tmp[512];
-  String sensor = input;
-  input = input.substring(0, 3);
-  input.toLowerCase();
+  String sensor = userInput;
+  userInput = userInput.substring(0, 3);
+  userInput.toLowerCase();
 
   // Set output label and unit: default is temperature in Fahrenheit.
   String label = "Temp", postFix = "F", postFix2 = "%";
-  if (input.startsWith("adc"))
+  if (userInput.startsWith("adc"))
   {
     // ADS1115 (analog-to-digital converter) outputs voltage
     label = "Volt";
     postFix = "V";
     postFix2 = "V";
   }
-  if (input.startsWith("bmp") || input.startsWith("bmx"))
+  if (userInput.startsWith("bmp") || userInput.startsWith("bmx"))
     postFix2 = "Pa";
 
   // Poll the target IP for sensor data using the "ALL" command.
   // Return code 0 = success; non-zero = socket error.
+  memset(tokens, 0, sizeof(tokens));
   if (socketClient((char *)ip.c_str(), (char *)"ALL"))
   {
     Serial.println("socketClient() failed");
     return;
   }
   // Look up the user-provided sensor prefix in the tag map.
-  auto it = tagMap.find(input);
+  auto it = tagMap.find(userInput);
   if (it == tagMap.end())
   {
-    Serial.printf("device not found .%s.\n", input.c_str());
+    Serial.printf("device not found .%s.\n", userInput.c_str());
     return; // Not found: abort.
   }
   int device = it->second; // Use the device code from the tag map.
@@ -992,29 +994,28 @@ void getSensorData4User(String input, String ip)
  */
 void ping()
 {
-
-  // Iterate over all registered sensor-IP pairs and perform a connectivity check.
-  // Each device is pinged 4 times via TCP connect/disconnect (isServerConnected).
-  // Results (pass/dead counts and elapsed time) are reported back to the Blynk
-  // terminal (V49). Setting terminal color on failure was removed: Blynk.setProperty
-  // inside a non-BLYNK_WRITE context had no effect (known platform limitation).
-  // The `_i` index suffix appended to netMap keys by getSensorData() is stripped before
-  // display so the user-facing sensor name is clean (e.g. "BME280" not "BME280_0").
   int dead, alive, totalDead = 0, totalPass = 0;
   unsigned long start;
   char line[50], line1[50];
+  std::map<std::string, net_t> reMap;
+  // Remove duplicate IPs because one node may expose multiple sensors in netMap.
   for (const auto &pair : netMap)
+
+    reMap[pair.second.ipAddress.c_str()] = {pair.second.ipAddress.c_str(),
+                                            pair.second.macAddress.c_str(),
+                                            pair.second.location.c_str()};
+
+  for (const auto &pair : reMap)
   {
     alive = dead = 0;
     start = millis();
 
     String room = pair.second.location.c_str();
     String IP = pair.second.ipAddress.c_str();
-    int length = pair.first.length();
-    sprintf(line, "%s %s: %s\n", pair.first.substr(0, length - 2).c_str(), pair.second.ipAddress.c_str(), room.c_str());
+    sprintf(line, "%s: %s\n", room.c_str(), IP.c_str());
     for (int j = 0; j < 4; j++)
     {
-      if (isServerConnected(pair.second.ipAddress.c_str()))
+      if (isServerConnected(IP.c_str()))
         alive++;
       else
         dead++;
@@ -1063,6 +1064,7 @@ String mac2room(String sensor)
   auto it = netMap.find(sensor.c_str());
   if (it != netMap.end())
     location = it->second.location.c_str();
+
   return location;
 }
 
@@ -1178,17 +1180,15 @@ void dumpI2C()
 
   // Remove duplicate IPs because one node may expose multiple sensors in netMap.
   for (const auto &pair : netMap)
-  {
     reMap[pair.second.ipAddress.c_str()] = {pair.second.ipAddress.c_str(),
                                             pair.second.macAddress.c_str(),
                                             pair.second.location.c_str()};
-  }
 
   // Poll each unique node for its I2C map and stream decoded lines to Blynk terminal.
   for (const auto &pair : reMap)
   {
-    results = socketClient((char *)pair.second.ipAddress.c_str(), (String) "I2C");
     String IP = pair.second.ipAddress.c_str();
+    results = socketClient((char *)IP.c_str(), (String) "I2C");
     String data = results;
     while (1)
     {
