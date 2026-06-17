@@ -95,6 +95,7 @@ void processSensorData(float tokens[DEVICES][5],  String sensor);
 bool queStat();
 int deleteRow(String phpScript);
 int socketClient(char *espServer, char *command);
+void updateBlynk();
 // Struct Definitions
 /**
  * @struct socket_t
@@ -106,7 +107,7 @@ int socketClient(char *espServer, char *command);
  * @var fun_ptr Function pointer to the recovery function (typically `socketClient`).
  * @var ipAddr  Null-terminated IP address string (max 20 chars).
  * @var cmd     Null-terminated command string (max 20 chars).
- * @var macAddr Null-terminated MAC address string (max 20 chars).
+ * @var sensor  Null-terminated sensor/source label string (max 20 chars).
  */
 typedef struct
 {
@@ -205,15 +206,15 @@ void initRTOS()
 }
 
 /**
- * @brief Sends a socket structure to a FreeRTOS queue for processing.
+ * @brief Enqueues a failed socket operation for asynchronous recovery.
  *
- * This function attempts to send a `socket_t` structure containing the IP address
- * and command to a FreeRTOS queue. If the queue is full, it resets the queue and
- * optionally deletes a row from a remote database using an HTTP request.
+ * This function fills a `socket_t` payload with the target host, command, and
+ * sensor/source identifier, then sends it to `QueSocket_Handle`. If the queue is
+ * full, it triggers cleanup on the backend and resets the recovery queue.
  *
  * @param IP Pointer to a character array containing the IP address.
  * @param cmd2Send Pointer to a character array containing the command to send.
- * @param MAC Pointer to a character array containing the source device MAC address.
+ * @param sensor Pointer to a character array containing the source sensor label.
  * @return int `pdTRUE` (1) if the structure was successfully sent to the queue,
  *             `errQUEUE_FULL` (0) if the queue is full, or 10 if the queue handle is NULL.
  *
@@ -236,7 +237,7 @@ int socketRecovery(char *IP, char *cmd2Send, char *sensor)
         if (ret == errQUEUE_FULL)
         {
             Serial.println(".......unable to send data to socket  Queue is Full");
-            String phpScript = "http://192.168.1.252/deleteIP.php?key=" + (String)IP;
+            String phpScript = "http://192.168.1.9/deleteIP.php?key=" + (String)IP;
             deleteRow(phpScript); // delete
             // Blynk.logEvent("");
             xQueueReset(QueSocket_Handle); // clear stale etries in que since its full
@@ -261,7 +262,7 @@ int socketRecovery(char *IP, char *cmd2Send, char *sensor)
  * @details
  * - Retrieves messages from the `QueHTTP_Handle` queue (blocking indefinitely).
  * - Uses `xMutex_http` to synchronize HTTP operations.
- * - POSTs message to `post-esp-data.php` endpoint at 192.168.1.252.
+ * - POSTs message to `post-esp-data.php` endpoint at 192.168.1.9.
  * - On success: increments `passPost` counter.
  * - On failure: attempts to clean up via `deleteRow()` (retry up to MAX_RETRY times),
  *   re-queues the same message, increments `failPost` and `recovered` counters.
@@ -269,7 +270,7 @@ int socketRecovery(char *IP, char *cmd2Send, char *sensor)
  *
  * @note
  * - The task uses non-blocking delays (`vTaskDelay`) to avoid blocking other tasks.
- * - The HTTP endpoint URL is hardcoded: `http://192.168.1.252/post-esp-data.php`.
+ * - The HTTP endpoint URL is hardcoded: `http://192.168.1.9/post-esp-data.php`.
  * - POST payload is `application/x-www-form-urlencoded` format.
  *
  *
@@ -280,7 +281,7 @@ void taskSQL_HTTP(void *pvParameters)
     HTTPClient http;
     // mysql includes
     WiFiClient client_sql;
-    String serverName = "http://192.168.1.252/post-esp-data.php";
+    String serverName = "http://192.168.1.9/post-esp-data.php";
     int passPost = 0, failPost = 0, recovered = 0;
     uint32_t http_delay = *((uint32_t *)pvParameters);
     TickType_t xDelay = http_delay / portTICK_PERIOD_MS;
@@ -306,7 +307,7 @@ void taskSQL_HTTP(void *pvParameters)
                 }
                 else
                 {
-                    String phpScript = "http://192.168.1.252/delete.php?key=" + message.key;
+                    String phpScript = "http://192.168.1.9/delete.php?key=" + message.key;
                     failPost++;
                     int j = 0, rc = 0;
                     while (1)
@@ -350,9 +351,9 @@ void taskSQL_HTTP(void *pvParameters)
  * 3. Delays for the specified amount of time before attempting recovery.
  * 4. Calls the queued function pointer (`int (*)(char*, char*)`) to attempt recovery.
  * 5. Updates recovery statistics based on the success or failure of the recovery attempt.
- * 6. If recovery succeeds, invokes `processSensorData(tokens, ip, mac)`.
+ * 6. If recovery succeeds, invokes `processSensorData(tokens, sensor)`.
  * 7. If recovery fails, re-queues the socket message for another recovery attempt.
- * 7. Releases the mutex after processing the message.
+ * 8. Releases the mutex after processing the message.
  *
  * @warning This task assumes that the function pointer in the `socket_t` structure is valid
  *          and callable. Ensure proper validation of the function pointer to avoid undefined behavior.
@@ -382,6 +383,7 @@ void taskSocketRecov(void *pvParameters)
                 {
                     processSensorData(tokens,socketQue.sensor);
                     recoveredSocket++;
+                    updateBlynk();
                     Serial.printf("Recovered last network fail for host:%s waiting %d space left %d \n", socketQue.ipAddr,
                                   uxQueueMessagesWaiting(QueSocket_Handle), uxQueueSpacesAvailable(QueSocket_Handle));
                     Serial.printf("passSocket %d failSocket %d  recovered %d retry %d \n", passSocket, failSocket, recoveredSocket, retry);
@@ -396,33 +398,29 @@ void taskSocketRecov(void *pvParameters)
 }
 
 /**
- * @brief Prepares and sends an HTTP request message to a FreeRTOS queue.
+ * @brief Builds and enqueues a URL-encoded HTTP POST payload.
  *
  * This function constructs an HTTP POST body using the provided sensor name,
- * sensor location, token values, and the global API key. It then copies the
- * payload into a message structure and attempts to enqueue it on `QueHTTP_Handle`.
+ * location, token values, and `phpKey`. The encoded payload is copied into a
+ * `message_t` structure and enqueued on `QueHTTP_Handle`.
  *
  * @param sensorName The name of the sensor to include in the HTTP request.
  * @param sensorLocation Logical location string associated with the sensor.
  * @param tokens An array of float values used to populate the HTTP request data.
  *               - tokens[1]: Base measurement value.
  *               - tokens[2]: Secondary measurement value.
- *               - tokens[3]: Queue key value; also used as ADS1115 scaling factor.
+ *               - tokens[3]: Queue key value (sent as value3 and stored as message key).
  *
- * @note The function uses an external variable `passSocket` for additional data
- *       in the HTTP request and an external FreeRTOS queue handle `QueHTTP_Handle`.
+ * @note The function uses external `phpKey` and `QueHTTP_Handle`.
  *
  * @details The constructed HTTP request string includes the following parameters:
  *          - api_key: A predefined API key, read from LittleFS.
  *          - sensor: The provided sensor name.
  *          - location: The provided `sensorLocation` argument.
  *          - value1, value2: Values from the `tokens` array.
- *          - value3: The value of the external variable `passSocket`.
+ *          - value3: The value of `tokens[3]`.
  *
- * If `sensorName` contains "ADS1115", value1 is multiplied by `tokens[3]`
- * before being sent.
- *
- * If the queue is full, the function logs a message to the serial output.
+ * If the queue is full, the function logs a message to serial output.
  * If the queue handle is null or no queue slot is available, the message is
  * dropped (non-blocking enqueue path).
  *

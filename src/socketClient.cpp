@@ -256,6 +256,8 @@ char *socketClient(char *espServer, String command)
         queStat();
         ESP.restart();
     }
+    // RST is fire-and-forget: server reboots immediately, so no response payload is expected.
+    // Return a user-facing status string to the caller and close the socket right away.
     if (command == "RST")
     {
         client.stop();

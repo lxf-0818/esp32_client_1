@@ -7,3 +7,4 @@
 #define VRECOV V19
 #define VFAIL V20
 #define VRETRY V34
+#define BOOT V10
