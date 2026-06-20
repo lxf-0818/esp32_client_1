@@ -91,11 +91,14 @@ void taskSocketRecov(void *pvParameters);
 void taskSQL_HTTP(void *pvParameters);
 void setupHTTP_request(String sensorName, String sensorLocation, float tokens[]);
 void taskBlink(void *pvParameters);
-void processSensorData(float tokens[DEVICES][5],  String sensor);
+void processSensorData(float tokens[DEVICES][5], String sensor);
 bool queStat();
 int deleteRow(String phpScript);
 int socketClient(char *espServer, char *command);
 void updateBlynk();
+String ip2mac(String ip);
+String performHttpGet(const char *url);
+
 // Struct Definitions
 /**
  * @struct socket_t
@@ -237,9 +240,13 @@ int socketRecovery(char *IP, char *cmd2Send, char *sensor)
         if (ret == errQUEUE_FULL)
         {
             Serial.println(".......unable to send data to socket  Queue is Full");
-            String phpScript = "http://192.168.1.9/deleteIP.php?key=" + (String)IP;
-            deleteRow(phpScript); // delete
-            // Blynk.logEvent("");
+            String macAddr = ip2mac(IP);
+            if (!macAddr.isEmpty())
+            {
+                String phpScript = "http://192.168.1.9/deleteMAC.php?key=" + (String)macAddr;
+                Serial.printf("php Script %s mac %s\n", phpScript.c_str(),macAddr.c_str());
+                performHttpGet(phpScript.c_str());
+            }
             xQueueReset(QueSocket_Handle); // clear stale etries in que since its full
             failSocket = retry = recoveredSocket = 0;
         }
@@ -300,15 +307,19 @@ void taskSQL_HTTP(void *pvParameters)
                 http.begin(client_sql, serverName.c_str());
                 http.addHeader("Content-Type", "application/x-www-form-urlencoded");
                 int httpResponseCode = http.POST(message.line);
-                if (httpResponseCode > 0)
+              //  httpResponseCode = 0;
+                if (httpResponseCode == 200)
                 {
                     passPost++;
                     String payload = http.getString();
                 }
                 else
                 {
-                    String phpScript = "http://192.168.1.9/delete.php?key=" + message.key;
+                    
+                    String phpScript = "http://192.168.1.9/delete.php?key=" + (String) message.key;
+                    Serial.printf("php Script %s\n", phpScript.c_str());
                     failPost++;
+
                     int j = 0, rc = 0;
                     while (1)
                     {
@@ -381,7 +392,7 @@ void taskSocketRecov(void *pvParameters)
                 int x = (*socketQue.fun_ptr)(socketQue.ipAddr, socketQue.cmd);
                 if (!x)
                 {
-                    processSensorData(tokens,socketQue.sensor);
+                    processSensorData(tokens, socketQue.sensor);
                     recoveredSocket++;
                     updateBlynk();
                     Serial.printf("Recovered last network fail for host:%s waiting %d space left %d \n", socketQue.ipAddr,
@@ -443,13 +454,14 @@ void setupHTTP_request(String sensorName, String sensorLocation, float tokens[])
         httpRequestData += "&value1=" + String(tokens[1]);
         httpRequestData += "&value2=" + String(tokens[2]);
         httpRequestData += "&value3=" + String(tokens[3]) + "";
-//#define DEBUG
+// #define DEBUG
 #ifdef DEBUG
         Serial.printf("http req data %s %d\n", httpRequestData.c_str(), passSocket);
 #endif
 
         strcpy(message.line, httpRequestData.c_str());
-        message.key = tokens[3];
+        message.key = passSocket;
+       // Serial.printf("message key %d\n", passSocket);
         message.line[strlen(message.line)] = 0; // Add the terminating null
         int ret = xQueueSend(QueHTTP_Handle, (void *)&message, 0);
         if (ret == pdTRUE)

@@ -118,6 +118,7 @@ int parseInput(String input, String validCommand[], int count);
 void displayValidCmdList(String validCommand[], int count);
 void setupHTTP_request(String sensorName, String location, float tokens[]);
 void updateBlynk();
+String ip2mac(String ip);
 
 /**
  * @brief Network metadata for one sensor entry.
@@ -140,9 +141,6 @@ std::map<std::string, net_t> ipMap;
 String menuList[] = {"Main Room", "ADC Guest Room", "Mud Room", "Master Bedroom",
                      "Guest Room", "Laundry Room", "BowFlex",
                      "ALL"};
-// String menuList[] = {""};
-
-// String ip, mac, location;
 const uint16_t port = 8888;
 String sensorName = "NO DEVICE";
 int failSocket, passSocket, recoveredSocket, retry, timerID1, passPost;
@@ -168,7 +166,9 @@ const char *ipMacList = "http://192.168.1.9/macipTest.php";
 const char *ipMacList = "http://192.168.1.9/macip.php";
 #endif
 
-const char *ipDelete = "http://192.168.1.9/deleteIP.php";
+const char *ipDelete = "http://192.168.1.9/deleteMAC.php";
+const char *macDelete = "http://192.168.1.9/delete.php";
+
 const char *esp_data = "http://192.168.1.9/esp-data.php";
 
 /**
@@ -203,6 +203,10 @@ void setup()
 
   String IP = WiFi.localIP().toString();
   Serial.printf("IP @: %s\n", IP.c_str());
+  String phpScript = "http://192.168.1.9/delete.php?key=" + (String)"49";
+  Serial.printf("php Script %s\n", phpScript.c_str());
+  performHttpGet((const char *) phpScript.c_str());
+
   if (checkSSD()) //  is OLED SSD connected?
     flashSSD();
 
@@ -1273,4 +1277,16 @@ void editLoc()
 void updateBlynk()
 {
   Blynk.virtualWrite(V19, recoveredSocket);
+} 
+String ip2mac(String ip)
+{
+  String rc = "";
+  for (const auto &pair : ipMap)
+  {
+    if (pair.second.ipAddress == ip.c_str()) {
+      Serial.printf("mac @ %s\n", pair.second.macAddress.c_str());
+      return pair.second.macAddress.c_str();
+    }
+  }
+  return rc;
 }
