@@ -95,6 +95,7 @@ void encrypt_stub(char *str, char *aes_encrypt)
 {
   memcpy(enc_iv_copy, aes_iv, sizeof(aes_iv));
   encrypt_to_ciphertext(str, enc_iv_copy);
+  
   strcpy(aes_encrypt, ciphertext);
 #ifdef DEBUG
   Serial.printf("clear text      %s\n", str);
@@ -193,6 +194,7 @@ int decryptWifiCredentials(char *auth, char *ssid, char *pass)
   memcpy(enc_iv_copy, aes_iv, sizeof(aes_iv));
   decrypt_to_cleartext((char *)ssid_psw_aes.c_str(), ssid_psw_aes.length(), enc_iv_copy, cleartext);
   String temp = cleartext;
+
   int index = temp.indexOf(":");
   strcpy(ssid, (temp.substring(0, index)).c_str());
   strcpy(pass, (temp.substring(index + 1)).c_str());

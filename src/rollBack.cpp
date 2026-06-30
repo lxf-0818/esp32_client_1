@@ -3,6 +3,9 @@
 
 // command line on pi 
 //sudo curl http://localhost/post-esp-data.php -d "api_key=xxxxxx&sensor=BME&locstion....."
+//pi@raspberrypi:/var/www/html $ curl -G --data-urlencode "key=1" "http://192.168.1.9/parse.php"
+//1|1
+//BME680 
 
 int deleteRow(String phpScript);
 String performHttpGet(const char *url);

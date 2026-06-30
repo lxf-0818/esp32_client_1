@@ -1,6 +1,6 @@
 # ESP32 Client Documentation
 
-Last updated: 2026-05-31
+Last updated: 2026-06-30
 
 ## Overview
 This project is an ESP32-based IoT client that:
@@ -39,11 +39,12 @@ Detailed module docs:
 1. `setup()` starts Serial, decrypts Wi-Fi credentials, and starts Blynk.
 2. `setup()` checks OLED and shows startup info if display is present.
 3. `setup()` schedules `refreshWidgets()` every 20 seconds.
-4. `setup()` initializes RTOS support.
-5. `setup()` starts ticker for the software watchdog.
-6. `loop()` continuously runs `lwdtFeed()`, `Blynk.run()`, and `timer.run()`.
-7. `refreshWidgets()` fetches current sensor roster from HTTP (`macip.php`), rebuilds runtime state, and updates Blynk stats.
-8. Sensor data is read via `socketClient()` and forwarded to backend and selected Blynk widgets.
+4. `setup()` starts ticker for the software watchdog.
+5. `setup()` initializes RTOS support and runs one immediate widget refresh.
+6. `setup()` calls `createMap()` to initialize the IP-to-location map used by recovery helpers.
+7. `loop()` continuously runs `lwdtFeed()`, `Blynk.run()`, and `timer.run()`.
+8. `refreshWidgets()` fetches current sensor roster from HTTP (`macip.php`), rebuilds runtime state, and updates Blynk stats.
+9. Sensor data is read via `socketClient()` and forwarded to backend and selected Blynk widgets.
 
 ## Data Model Summary
 - `net_t`: One node record containing:
@@ -84,8 +85,8 @@ The client currently uses fixed local endpoints in `src/main.cpp`:
 - `truncate.php`
 - `ip.php`
 - `macip.php` (or `macipTest.php` with `TEST`)
-- `deleteIP.php`
-- `esp-data.php`
+- `deleteMAC.php`
+- `post-esp-data.php` (used by RTOS HTTP queue task)
 
 If your server IP changes, update these constants.
 

@@ -101,6 +101,7 @@ String ip2mac(String ip);
 String performHttpGet(const char *url);
 void enableTimer();
 void disableTimer();
+int parseHTTP(int row);
 
 // Struct Definitions
 /**
@@ -310,27 +311,21 @@ void taskSQL_HTTP(void *pvParameters)
                 http.begin(client_sql, serverName.c_str());
                 http.addHeader("Content-Type", "application/x-www-form-urlencoded");
                 int httpResponseCode = http.POST(message.line);
-                //  httpResponseCode = 0;
                 if (httpResponseCode == 200)
                 {
-
                     passPost++;
-                    String phpScript = "http://192.168.1.9/parse.php?key=" + (String)(passPost);
-                    String results = performHttpGet(phpScript.c_str());
-                    //  Serial.printf("phpScript %s results %s\n", phpScript.c_str(), results.c_str());
-
-                    int index = results.indexOf("|");
-                    String pid = results.substring(0, index);
-                    int index1 = results.indexOf(",");
-                    String key = results.substring(index + 1, index1);
-                 
-                    if (pid != key)
+                    vTaskDelay(xDelay);
+                    if (parseHTTP(passPost))
                     {
-                        String phpScript = "http://192.168.1.9/delete.php?key=" + (String)pid;
-                        String results = performHttpGet(phpScript.c_str());
-                        Serial.printf("Payload %s php Script %s\n", results.c_str(), phpScript.c_str());
-                        /*int ret = */ xQueueSend(QueHTTP_Handle, (void *)&message, 0); // send message back to queue
-                        Serial.printf("results %s last insert failed .%s. .%s.\n", results.c_str(), pid.c_str(), key.c_str());
+                        // re-try
+                        int httpResponseCode = http.POST(message.line);
+                        if (httpResponseCode != 200)
+                        {
+                            Serial.println("Turned off timer....retry");
+                            disableTimer();
+                        }
+
+                        //   ESP.restart();
                     }
                 }
                 else
@@ -471,8 +466,8 @@ void setupHTTP_request(String sensorName, String sensorLocation, float tokens[])
         httpRequestData += "&value2=" + String(tokens[2]);
         httpRequestData += "&value3=" + String(tokens[3]);
         httpRequestData += "&value4=" + String(passSocket);
-        httpRequestData += "&value5=" + String(passSocket);
-//#define DEBUG
+        httpRequestData += "&value5=" + String("0");
+// #define DEBUG
 #ifdef DEBUG
         // if (!stop)
         Serial.printf("http req data %s passSocket %d\n", httpRequestData.c_str(), passSocket);
@@ -535,8 +530,8 @@ void taskBlink(void *pvParameters)
  * @return true If both queues are empty and both mutexes are successfully taken.
  * @return false If the queues are not empty within the 5-second timeout.
  *
- * @note This helper takes both mutexes and does not release them; call it only
- *       from controlled restart/shutdown flows.
+ * @note This helper briefly takes both mutexes to ensure in-flight queue work
+ *       has completed, then releases both before returning.
  */
 bool queStat()
 {
@@ -562,4 +557,55 @@ bool queStat()
     xSemaphoreGive(xMutex_sock);
 
     return true;
+}
+
+/**
+ * @brief Validates the last SQL insert by comparing parse.php row metadata.
+ *
+ * Requests parse.php with the provided row ID, expects payload in the form
+ * "<pid>|<key>,...", and compares pid against key.
+ *
+ * Return codes:
+ * - 0: payload valid and pid == key.
+ * - 1: malformed payload (missing expected delimiter).
+ * - 2: mismatch detected (pid != key); stale-row cleanup attempted.
+ *
+ * @param row 1-based row/checkpoint value used by parse.php lookup.
+ * @return int Status code described above.
+ */
+int parseHTTP(int row)
+{
+    String phpScript = "http://192.168.1.9/parse.php?key=" + (String)(row);
+    String results = performHttpGet(phpScript.c_str());
+
+    // Split `results` as "pid|key,..." and verify insert bookkeeping.
+    int index = results.indexOf("|");
+    if (index < 0)
+    {
+
+        Serial.printf("parse.php failed %s\n mgs line %s\n", results.c_str(), message.line);
+       
+        disableTimer();
+        return 1;
+    }
+    String pid = results.substring(0, index);
+    int index1 = results.indexOf(",");
+    String key = results.substring(index + 1, index1);
+    Serial.printf("passPost %d pid %s key %s\n", row, pid.c_str(), key.c_str());
+
+    // test case
+    // if (pid == "5")
+    //     key = "0";
+
+    if (pid == key)
+        return 0;
+    else
+    {
+        disableTimer();
+        Serial.printf("results %s last insert failed .%s. .%s.\n", results.c_str(), pid.c_str(), key.c_str());
+        String phpScript = "http://192.168.1.9/delete.php?key=" + (String)pid;
+        String results = performHttpGet(phpScript.c_str());
+        Serial.printf("Payload %s php Script %s\n", results.c_str(), phpScript.c_str());
+        return 2;
+    }
 }

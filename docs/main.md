@@ -9,8 +9,10 @@ Primary ESP32 client runtime for Blynk integration, backend polling, sensor fetc
   - starts Blynk
   - optional OLED init (`checkSSD()` / `flashSSD()`)
   - schedules periodic `refreshWidgets()` every 20 s
-  - starts FreeRTOS support (`initRTOS()`)
   - starts loop watchdog ticker (`LWD_TIMEOUT` = 15 s)
+  - starts FreeRTOS support (`initRTOS()`)
+  - runs one immediate refresh (`refreshWidgets()`) to prime runtime counters
+  - initializes IP-location map used by recovery/deletion helpers (`createMap()`)
 - `loop()`:
   - feeds watchdog
   - runs Blynk
@@ -33,7 +35,8 @@ Primary ESP32 client runtime for Blynk integration, backend polling, sensor fetc
 4. socket-polls each parsed node with `ALL`
 5. updates Blynk counters/status (`V51`, `V7`, `V20`, `V19`, `V34`, `V47`)
 6. updates terminal only when roster payload changes (`lastSensorsConnected`)
-7. on error, writes status to `V39` and returns early
+7. on empty roster HTTP response, writes status to `V39` and returns early
+8. on parsed sensor count of zero, writes status to `V39` and returns early
 
 ## Blynk Handlers
 - `BLYNK_CONNECTED()`: boot state, counter reset, row-count sync, widget label setup
@@ -136,16 +139,19 @@ Output behavior:
 | V51 | - | write | Current expanded sensor count |
 
 ## Server Endpoints
-All hosted on `192.168.1.252`:
+All hosted on `192.168.1.9`:
 
 | Variable | URL | Purpose |
 |----------|-----|---------|
 | `ipList` | `/ip.php` | List connected sensors and IPs |
-| `ipDelete` | `/deleteIP.php` | Purge IP registrations |
+| `ipDelete` | `/deleteMAC.php` | Purge MAC registrations |
 | `getRowCnt` | `/rows.php` | Row count bootstrap (initialises `passSocket`) |
 | `deleteAll` | `/truncate.php` | Delete all backend records |
-| `esp_data` | `/esp-data.php` | Store sensor data |
 | `ipMacList` | `/macip.php` (or `/macipTest.php` under `TEST`) | Sensor roster including sensor group, IP, location, MAC |
+
+Notes:
+- SQL POST is sent from the RTOS task in `src/freeRtos.cpp` to `/post-esp-data.php`.
+- `main.cpp` does not currently use an `esp_data` endpoint constant.
 
 ## Watchdog
 - `lwdtFeed()` refreshes loop heartbeat

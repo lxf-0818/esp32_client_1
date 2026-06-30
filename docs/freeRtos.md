@@ -38,7 +38,7 @@ Current constants:
 - function pointer for socket operation
 - target IP string
 - command string
-- source MAC string
+- source sensor label string
 
 Current function pointer signature:
 - `int (*fun_ptr)(char *, char *)`
@@ -68,9 +68,9 @@ Failure behavior in initRTOS:
 - If any task handle is null after creation, ESP restarts.
 - Queue/mutex allocation failures are logged to serial.
 
-### socketRecovery(IP, cmd, MAC)
+### socketRecovery(IP, cmd, sensor)
 Pushes failed socket operation to socket queue.
-If queue is full, calls deleteIP.php for the IP and resets the socket queue.
+If queue is full, resolves IP -> MAC via `ip2mac()` and calls `deleteMAC.php` when available, then resets the socket queue.
 
 Return behavior:
 - `pdTRUE` on successful enqueue
@@ -81,12 +81,14 @@ Return behavior:
 Consumer loop for HTTP queue:
 1. receives queued message
 2. sends POST to post-esp-data.php
-3. on failure, attempts delete/recovery path with retry limit
-4. can requeue recovered message for later send
+3. on HTTP 200, increments `passPost`, then verifies row consistency using `parse.php?key=<passPost>`
+4. if parse result mismatch (`pid != key`), deletes stale row via `delete.php?key=<pid>` and immediately retries POST once
+5. on non-200 POST, attempts delete/recovery path with retry limit and requeues message
 
 Additional behavior:
 - Uses xMutex_http around HTTP transaction work.
-- Tracks passPost/failPost/recovered counters locally in task context.
+- Tracks `passPost` and `recovered` counters locally in task context.
+- If parse payload does not contain `|`, logs failure and restarts ESP32.
 - Uses `delete.php?key=<id>` as the row cleanup endpoint on POST failure.
 
 ### taskSocketRecov(...)
@@ -97,7 +99,7 @@ passSocket 85054 failSocket 1  recovered 1 retry 3
 
 Additional behavior:
 - Increments global retry counter before each recovery attempt.
-- On successful retry (`socketClient` return code 0), calls `processSensorData(tokens, ip, mac)`.
+- On successful retry (`socketClient` return code 0), calls `processSensorData(tokens, sensor)`.
 - Requeues failed recovery attempts back into QueSocket_Handle.
 
 ### setupHTTP_request(sensorName, sensorLocation, tokens)
@@ -107,17 +109,18 @@ Payload format:
 - api_key=<phpKey loaded from /api.txt during login init>
 - sensor=<sensorName>
 - location=<sensorLocation>
-- value1=<tokens[1] or ADS1115-scaled value>
+- value1=<tokens[1]>
 - value2=<tokens[2]>
-- value3=<passSocket>
+- value3=<tokens[3]>
+- value4=<passSocket>
+- value5=<passSocket>
 
 Queue behavior:
 - Enqueues only when queue exists and has free space.
 - If HTTP queue is full, logs an error and drops the message (no reset/retry at enqueue site).
 
 Additional behavior:
-- If `sensorName` contains `ADS1115`, `value1` is multiplied by `tokens[3]` before enqueue.
-- The queued message key is set from `tokens[3]`.
+- The queued message key is set from `passSocket`.
 
 ### queStat()
 Utility to inspect queue state and gate restart behavior when work is still pending.
@@ -125,16 +128,26 @@ Utility to inspect queue state and gate restart behavior when work is still pend
 Notes:
 - Waits up to 5 seconds for both queues to drain.
 - On success, takes both mutexes before returning true (caller path is typically followed by restart).
-- This function does not release those mutexes itself; it is intended for shutdown/restart paths.
+- This function releases both mutexes before returning.
 
 ## Network Endpoints Used
 Hardcoded local endpoints are used for row delete/recovery and post actions, including:
 - post-esp-data.php
+- parse.php?key=<rowKey>
 - delete.php?key=<rowKey>
-- deleteIP.php?key=<ipAddress>
+- deleteMAC.php?key=<macAddress>
 
 ## Operational Notes
 - Queue backpressure is intentionally small; overflow triggers cleanup strategy.
 - Mutex use protects shared HTTP/socket sections while tasks run concurrently.
 - This design helps keep the main loop responsive while handling transient network failures.
-- If `QueSocket_Handle` is full, `socketRecovery()` clears stale entries with `xQueueReset()` after issuing `deleteIP.php?key=<ip>`.
+- If `QueSocket_Handle` is full, `socketRecovery()` clears stale entries with `xQueueReset()` after optional MAC cleanup.
+
+## Unit Test Coverage
+Current unit tests for parse/compare behavior live in [test/test_http_parse/test_main.cpp](test/test_http_parse/test_main.cpp).
+
+Covered cases:
+- matching `pid` and `key` (`pid == key`)
+- mismatching `pid` and `key` (`pid != key`)
+- first-comma key parsing behavior
+- exact String comparison semantics (e.g., `"105"` vs `"0105"`)
