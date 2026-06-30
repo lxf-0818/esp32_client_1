@@ -83,6 +83,7 @@ TaskHandle_t socket_task_handle, http_task_handle, blink_task_handle;
 extern int failSocket, passSocket, recoveredSocket, retry;
 extern String phpKey;
 extern float tokens[DEVICES][5];
+bool stop = false;
 
 // Function Prototypes
 void initRTOS();
@@ -98,6 +99,8 @@ int socketClient(char *espServer, char *command);
 void updateBlynk();
 String ip2mac(String ip);
 String performHttpGet(const char *url);
+void enableTimer();
+void disableTimer();
 
 // Struct Definitions
 /**
@@ -244,7 +247,7 @@ int socketRecovery(char *IP, char *cmd2Send, char *sensor)
             if (!macAddr.isEmpty())
             {
                 String phpScript = "http://192.168.1.9/deleteMAC.php?key=" + (String)macAddr;
-                Serial.printf("php Script %s mac %s\n", phpScript.c_str(),macAddr.c_str());
+                Serial.printf("php Script %s mac %s\n", phpScript.c_str(), macAddr.c_str());
                 performHttpGet(phpScript.c_str());
             }
             xQueueReset(QueSocket_Handle); // clear stale etries in que since its full
@@ -270,7 +273,7 @@ int socketRecovery(char *IP, char *cmd2Send, char *sensor)
  * - Retrieves messages from the `QueHTTP_Handle` queue (blocking indefinitely).
  * - Uses `xMutex_http` to synchronize HTTP operations.
  * - POSTs message to `post-esp-data.php` endpoint at 192.168.1.9.
- * - On success: increments `passPost` counter.
+ * - On success: increments `passSocket` counter.
  * - On failure: attempts to clean up via `deleteRow()` (retry up to MAX_RETRY times),
  *   re-queues the same message, increments `failPost` and `recovered` counters.
  * - Logs diagnostics to Serial (response codes, message content, counters).
@@ -289,7 +292,7 @@ void taskSQL_HTTP(void *pvParameters)
     // mysql includes
     WiFiClient client_sql;
     String serverName = "http://192.168.1.9/post-esp-data.php";
-    int passPost = 0, failPost = 0, recovered = 0;
+    int passPost = passSocket, recovered = 0;
     uint32_t http_delay = *((uint32_t *)pvParameters);
     TickType_t xDelay = http_delay / portTICK_PERIOD_MS;
     Serial.printf("Task Post SQL running on CoreID:%d xDelay:%u ms Free Bytes: %d\n",
@@ -302,23 +305,40 @@ void taskSQL_HTTP(void *pvParameters)
             int ret = xQueueReceive(QueHTTP_Handle, &message, portMAX_DELAY); // wait for message
             if (ret == pdPASS)
             {
-                //  "take" blocks calls to esp restart while messages are on queue see queStat()
+                //  "take" blocks calls to esp restart while messages are onh queue see queStat()
                 xSemaphoreTake(xMutex_http, portMAX_DELAY);
                 http.begin(client_sql, serverName.c_str());
                 http.addHeader("Content-Type", "application/x-www-form-urlencoded");
                 int httpResponseCode = http.POST(message.line);
-              //  httpResponseCode = 0;
+                //  httpResponseCode = 0;
                 if (httpResponseCode == 200)
                 {
+
                     passPost++;
-                    String payload = http.getString();
+                    String phpScript = "http://192.168.1.9/parse.php?key=" + (String)(passPost);
+                    String results = performHttpGet(phpScript.c_str());
+                    //  Serial.printf("phpScript %s results %s\n", phpScript.c_str(), results.c_str());
+
+                    int index = results.indexOf("|");
+                    String pid = results.substring(0, index);
+                    int index1 = results.indexOf(",");
+                    String key = results.substring(index + 1, index1);
+                 
+                    if (pid != key)
+                    {
+                        String phpScript = "http://192.168.1.9/delete.php?key=" + (String)pid;
+                        String results = performHttpGet(phpScript.c_str());
+                        Serial.printf("Payload %s php Script %s\n", results.c_str(), phpScript.c_str());
+                        /*int ret = */ xQueueSend(QueHTTP_Handle, (void *)&message, 0); // send message back to queue
+                        Serial.printf("results %s last insert failed .%s. .%s.\n", results.c_str(), pid.c_str(), key.c_str());
+                    }
                 }
                 else
                 {
-                    
-                    String phpScript = "http://192.168.1.9/delete.php?key=" + (String) message.key;
+
+                    String phpScript = "http://192.168.1.9/delete.php?key=" + (String)message.key;
                     Serial.printf("php Script %s\n", phpScript.c_str());
-                    failPost++;
+                    // failPost++;
 
                     int j = 0, rc = 0;
                     while (1)
@@ -330,7 +350,7 @@ void taskSQL_HTTP(void *pvParameters)
                     }
                     Serial.printf("rc %d\n", rc);
                     Serial.printf("HTTP Error rc: %d %s %d \n", httpResponseCode, message.line, message.key);
-                    Serial.printf("passed %d  failed %d ", passPost, failPost);
+                    //  Serial.printf("passed %d  failed %d ", passSocket failPost);
                     int ret = xQueueSend(QueHTTP_Handle, (void *)&message, 0); // send message back to queue
                     if (ret == pdTRUE)
                         recovered++;                            //
@@ -442,10 +462,6 @@ void taskSocketRecov(void *pvParameters)
 void setupHTTP_request(String sensorName, String sensorLocation, float tokens[])
 {
     message_t message;
-    // float token1 = tokens[1];
-    // if (sensorName.indexOf("ADS1115") >= 0)
-    //     token1 *= tokens[3];
-
     if (QueHTTP_Handle != NULL && uxQueueSpacesAvailable(QueHTTP_Handle) > 0)
     {
         String httpRequestData = "api_key=" + phpKey;
@@ -453,15 +469,18 @@ void setupHTTP_request(String sensorName, String sensorLocation, float tokens[])
         httpRequestData += "&location=" + sensorLocation;
         httpRequestData += "&value1=" + String(tokens[1]);
         httpRequestData += "&value2=" + String(tokens[2]);
-        httpRequestData += "&value3=" + String(tokens[3]) + "";
-// #define DEBUG
+        httpRequestData += "&value3=" + String(tokens[3]);
+        httpRequestData += "&value4=" + String(passSocket);
+        httpRequestData += "&value5=" + String(passSocket);
+//#define DEBUG
 #ifdef DEBUG
-        Serial.printf("http req data %s %d\n", httpRequestData.c_str(), passSocket);
+        // if (!stop)
+        Serial.printf("http req data %s passSocket %d\n", httpRequestData.c_str(), passSocket);
 #endif
 
         strcpy(message.line, httpRequestData.c_str());
         message.key = passSocket;
-       // Serial.printf("message key %d\n", passSocket);
+        // Serial.printf("message key %d\n", passSocket);
         message.line[strlen(message.line)] = 0; // Add the terminating null
         int ret = xQueueSend(QueHTTP_Handle, (void *)&message, 0);
         if (ret == pdTRUE)
