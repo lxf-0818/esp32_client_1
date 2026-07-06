@@ -32,6 +32,7 @@ int decryptWifiCredentials(char *auth, char *ssid, char *pass);
 int readAES(char *fileName, byte data[]);
 String readLittle(char *fileName);
 String phpKey;
+extern String phpServerIP;
 /**
  * @brief Initialises the AES library with zero-padding mode.
  *
@@ -189,7 +190,7 @@ int decryptWifiCredentials(char *auth, char *ssid, char *pass)
   ssid_psw_aes = readLittle((char *)"/ssid_pass_aes.txt");
   String blyAuth = readLittle((char *)"/blynkAuth.txt");
   strcpy(auth, blyAuth.c_str());
-
+  phpServerIP = readLittle((char *)"/phpServerIP.txt");
   // save a copy decrypt_to_cleartext() corrupts byte array aes_iv
   memcpy(enc_iv_copy, aes_iv, sizeof(aes_iv));
   decrypt_to_cleartext((char *)ssid_psw_aes.c_str(), ssid_psw_aes.length(), enc_iv_copy, cleartext);

@@ -56,7 +56,6 @@
  * @section Notes
  * - Define DEBUG to enable verbose Serial output in selected functions.
  * - Ensure the OLED is wired to the correct I2C pins before enabling the display.
- * - Server endpoint host addresses are hardcoded to 192.168.1.9; update if the server IP changes.
  */
 #define BLYNK_TEMPLATE_ID "TMPL21W-vgTej"
 #define BLYNK_TEMPLATE_NAME "autoStart"
@@ -158,21 +157,22 @@ float tokens[DEVICES][5];
 bool setAlarm = false;
 Ticker lwdTicker;
 String lastSensorsConnected = "";
+String phpServerIP;
 // bool stop = false;
 #define LWD_TIMEOUT 15 * 1000 // Reboot if loop watchdog timer reaches this time out value
 unsigned long lwdTime = 0;
 unsigned long lwdTimeout = LWD_TIMEOUT;
-const char *getRowCnt = "http://192.168.1.9/rows.php";
-const char *deleteAll = "http://192.168.1.9/truncate.php";
-const char *ipList = "http://192.168.1.9/ip.php";
+const char *getRowCnt = "rows.php";
+const char *deleteAll = "truncate.php";
+const char *ipList = "ip.php";
 // #define TEST
 #ifdef TEST
-const char *ipMacList = "http://192.168.1.9/macipTest.php";
+const char *ipMacList = "macipTest.php";
 #else
-const char *ipMacList = "http://192.168.1.9/macip.php";
+const char *ipMacList = "macip.php";
 #endif
 
-const char *ipDelete = "http://192.168.1.9/deleteMAC.php";
+const char *ipDelete = "deleteMAC.php";
 
 /**
  * @brief Sets up the initial configuration for the ESP32 client application.
@@ -214,9 +214,9 @@ void setup()
   lwdtFeed();
   lwdTicker.attach_ms(LWD_TIMEOUT, lwdtcb); // attach lwdt callback routine to Ticker object
   initRTOS();
-  refreshWidgets();
+  //refreshWidgets();
   int cnt = createMap();
-  Serial.printf("cnt %d\n", cnt);
+  Serial.printf(" Sensors: %d\n", cnt);
 
   Blynk.setProperty(BLINK_TST, "labels",
                     "Main Room", "ADC Guest Room", "Mud Room", "Master Bedroom",
@@ -383,8 +383,13 @@ BLYNK_CONNECTED()
   Blynk.virtualWrite(VRECOV, 0); //   "   recover
   Blynk.virtualWrite(VRETRY, 0); //   "   retry
   Blynk.virtualWrite(V39, "boot");
-
-  String payload = performHttpGet(getRowCnt);
+  String payload;
+// #define TEST
+#ifdef TEST
+  payload = performHttpGet(deleteAll);
+  Serial.println("WARNING TRUNCATE DB");
+#endif
+  payload = performHttpGet(getRowCnt);
   if (payload.isEmpty())
   {
     Serial.println("Failed php script ");
@@ -532,33 +537,38 @@ void upDateWidget(char *sensor, float tokens[])
     return;
   }
 }
+
 /**
- * @brief Performs an HTTP GET request to the specified URL and retrieves the response as a string.
+ * @brief Performs an HTTP GET request to the backend PHP server.
  *
- * @param url The URL to send the HTTP GET request to. Must be a null-terminated C-style string.
- * @return String The response payload as a string if the request is successful.
- *         Returns an empty string if the request fails or the HTTP response code is not 200.
+ * Constructs the full URL by prepending the global `phpServerIP` to the
+ * provided script path, executes a GET request, and returns the response body.
+ * Returns an empty string if the HTTP response code is not 200.
  *
+ * @param phpScript Relative path of the PHP script to call (e.g. "/getRow.php").
+ * @return String Response payload on success, or an empty string on failure.
+ * 
  * @note If the macro DEBUG_PHP is defined, the response payload will be printed to the Serial monitor.
+ * 
  */
-// #define DEBUG_PHP
-String performHttpGet(const char *url)
+String performHttpGet(const char *phpScript)
 {
+  String payload = "";
+  String url = phpServerIP + phpScript;
   http.begin(url);
   int httpResponseCode = http.GET();
   if (httpResponseCode != 200)
   {
-    Serial.printf("HTTP GET failed %s with code: %d\n", url, httpResponseCode);
-    return ""; // Return an empty string on failure
+    Serial.printf("HTTP GET failed %s with code: %d\n", url.c_str(), httpResponseCode);
+    payload = ""; // Return an empty string on failure
   }
-  String response = http.getString();
-  http.end();
-
+  else
+    payload = http.getString();
 #ifdef DEBUG_PHP
   Serial.printf("url: %s Payload: %s\n", url, response.c_str());
 #endif
-
-  return response;
+  http.end();
+  return payload;
 }
 
 /**
@@ -919,6 +929,7 @@ BLYNK_WRITE(V49)
       "i2c",
       "ip",
       "enable",
+      "disable",
       "all",
   };
 
@@ -962,6 +973,9 @@ BLYNK_WRITE(V49)
     enableTimer();
     break;
   case 9:
+    disableTimer();
+    break;
+  case 10:
     timer.disable(timerID1); // pause periodic refresh to prevent socket contention during user input
     for (const auto &pair : netMap)
       getSensorData4User(pair.first.c_str(), pair.second.ipAddress.c_str());

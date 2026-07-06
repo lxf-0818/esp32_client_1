@@ -83,6 +83,8 @@ TaskHandle_t socket_task_handle, http_task_handle, blink_task_handle;
 extern int failSocket, passSocket, recoveredSocket, retry;
 extern String phpKey;
 extern float tokens[DEVICES][5];
+extern String phpServerIP;
+
 bool stop = false;
 
 // Function Prototypes
@@ -101,7 +103,8 @@ String ip2mac(String ip);
 String performHttpGet(const char *url);
 void enableTimer();
 void disableTimer();
-int parseHTTP(int row);
+int validateLastInsertRow(const int row, const String &msg);
+String find(String msg, String toFind);
 
 // Struct Definitions
 /**
@@ -247,7 +250,7 @@ int socketRecovery(char *IP, char *cmd2Send, char *sensor)
             String macAddr = ip2mac(IP);
             if (!macAddr.isEmpty())
             {
-                String phpScript = "http://192.168.1.9/deleteMAC.php?key=" + (String)macAddr;
+                String phpScript = "deleteMAC.php?key=" + (String)macAddr;
                 Serial.printf("php Script %s mac %s\n", phpScript.c_str(), macAddr.c_str());
                 performHttpGet(phpScript.c_str());
             }
@@ -273,7 +276,7 @@ int socketRecovery(char *IP, char *cmd2Send, char *sensor)
  * @details
  * - Retrieves messages from the `QueHTTP_Handle` queue (blocking indefinitely).
  * - Uses `xMutex_http` to synchronize HTTP operations.
- * - POSTs message to `post-esp-data.php` endpoint at 192.168.1.9.
+ * - POSTs message to `post-esp-data.php` endpoint .
  * - On success: increments `passSocket` counter.
  * - On failure: attempts to clean up via `deleteRow()` (retry up to MAX_RETRY times),
  *   re-queues the same message, increments `failPost` and `recovered` counters.
@@ -281,7 +284,7 @@ int socketRecovery(char *IP, char *cmd2Send, char *sensor)
  *
  * @note
  * - The task uses non-blocking delays (`vTaskDelay`) to avoid blocking other tasks.
- * - The HTTP endpoint URL is hardcoded: `http://192.168.1.9/post-esp-data.php`.
+ * - The HTTP endpoint URL is hardcoded: phpServerIP + `post-esp-data.php`.
  * - POST payload is `application/x-www-form-urlencoded` format.
  *
  *
@@ -292,7 +295,7 @@ void taskSQL_HTTP(void *pvParameters)
     HTTPClient http;
     // mysql includes
     WiFiClient client_sql;
-    String serverName = "http://192.168.1.9/post-esp-data.php";
+    String serverName = phpServerIP + "post-esp-data.php";
     int passPost = passSocket, recovered = 0;
     uint32_t http_delay = *((uint32_t *)pvParameters);
     TickType_t xDelay = http_delay / portTICK_PERIOD_MS;
@@ -315,23 +318,13 @@ void taskSQL_HTTP(void *pvParameters)
                 {
                     passPost++;
                     vTaskDelay(xDelay);
-                    if (parseHTTP(passPost))
-                    {
-                        // re-try
-                        int httpResponseCode = http.POST(message.line);
-                        if (httpResponseCode != 200)
-                        {
-                            Serial.println("Turned off timer....retry");
-                            disableTimer();
-                        }
-
-                        //   ESP.restart();
-                    }
+                    String msg = message.line;
+                    http.end();
+                    validateLastInsertRow(passPost, msg);
                 }
                 else
                 {
-
-                    String phpScript = "http://192.168.1.9/delete.php?key=" + (String)message.key;
+                    String phpScript = "delete.php?key=" + (String)message.key;
                     Serial.printf("php Script %s\n", phpScript.c_str());
                     // failPost++;
 
@@ -351,7 +344,7 @@ void taskSQL_HTTP(void *pvParameters)
                         recovered++;                            //
                     Serial.printf("recoverd %d \n", recovered); // checked mySQL and the entry exists
                 }
-                http.end();
+                //  http.end();
                 vTaskDelay(xDelay);
                 xSemaphoreGive(xMutex_http);
             }
@@ -467,7 +460,7 @@ void setupHTTP_request(String sensorName, String sensorLocation, float tokens[])
         httpRequestData += "&value3=" + String(tokens[3]);
         httpRequestData += "&value4=" + String(passSocket);
         httpRequestData += "&value5=" + String("0");
-// #define DEBUG
+#define DEBUG
 #ifdef DEBUG
         // if (!stop)
         Serial.printf("http req data %s passSocket %d\n", httpRequestData.c_str(), passSocket);
@@ -573,39 +566,104 @@ bool queStat()
  * @param row 1-based row/checkpoint value used by parse.php lookup.
  * @return int Status code described above.
  */
-int parseHTTP(int row)
+int validateLastInsertRow(const int row, const String &msg)
 {
-    String phpScript = "http://192.168.1.9/parse.php?key=" + (String)(row);
-    String results = performHttpGet(phpScript.c_str());
+    String phpScript = "parse.php?key=" + (String)(row);
+    String lastInsertResults = performHttpGet(phpScript.c_str());
 
-    // Split `results` as "pid|key,..." and verify insert bookkeeping.
-    int index = results.indexOf("|");
+    // Split `lastInsertResults` as "pid|key,..." and verify insert bookkeeping.
+    int index = lastInsertResults.indexOf("|");
     if (index < 0)
     {
-
-        Serial.printf("parse.php failed %s\n mgs line %s\n", results.c_str(), message.line);
-       
-        disableTimer();
-        return 1;
+        Serial.printf("parse.php failed %s\n mgs line %s\n", lastInsertResults.c_str(), message.line);
+        return 0;
     }
-    String pid = results.substring(0, index);
-    int index1 = results.indexOf(",");
-    String key = results.substring(index + 1, index1);
-    Serial.printf("passPost %d pid %s key %s\n", row, pid.c_str(), key.c_str());
+    String pid = lastInsertResults.substring(0, index);
+    int index1 = lastInsertResults.indexOf(",");
+    String key = lastInsertResults.substring(index + 1, index1);
+    // for (int i = 0; i < key.length(); i++)
+    // {
 
-    // test case
-    // if (pid == "5")
-    //     key = "0";
+    // }
+
+    Serial.printf("passPost %d pid %s key %s\n", row, pid.c_str(), key.c_str());
+    float tokens[5];
+
+  //  test case
+    // if (pid == "6")
+    //     key = "BM6:192.168.1.6";
 
     if (pid == key)
         return 0;
     else
     {
+        
+        HTTPClient http;
+        WiFiClient client_sql;
+        String serverName = phpServerIP + "post-esp-data.php";
+
+        String tmp, sensor, location, value;
+        Serial.printf("parse.php lastInsertResults %s last insert failed .%s. .%s.\n", lastInsertResults.c_str(), pid.c_str(), key.c_str());
+        Serial.printf("msg %s\n", msg.c_str());
         disableTimer();
-        Serial.printf("results %s last insert failed .%s. .%s.\n", results.c_str(), pid.c_str(), key.c_str());
-        String phpScript = "http://192.168.1.9/delete.php?key=" + (String)pid;
-        String results = performHttpGet(phpScript.c_str());
-        Serial.printf("Payload %s php Script %s\n", results.c_str(), phpScript.c_str());
-        return 2;
+        return 0; // return good but timer is disable
+
+        // api_key=tPmAT5Ab3j7F9&sensor=BME280&location=Laundry Room&value1=80.53&value2=59.51&value3=230.65&value4=6&value5=0
+
+        sensor = find(msg, "sensor=");
+        Serial.println(sensor);
+
+        location = find(msg, "location=");
+        Serial.println(location);
+
+        for (int i = 1; i < 6; i++)
+        {
+            tmp = ("value" + String(i) + "=");
+            value = find(msg, tmp);
+            Serial.println(value);
+            tokens[i] = atof(value.c_str());
+        }
+        setupHTTP_request(sensor, location, tokens);
+        String httpRequestData = "api_key=" + phpKey;
+        httpRequestData += "&sensor=" + sensor;
+        httpRequestData += "&location=" + location;
+        httpRequestData += "&value1=" + String(tokens[0]);
+        httpRequestData += "&value2=" + String(tokens[1]);
+        httpRequestData += "&value3=" + String(tokens[2]);
+        httpRequestData += "&value4=" + String(row + 1);
+        httpRequestData += "&value5=" + String("1");
+        strcpy(message.line, httpRequestData.c_str());
+
+        http.begin(client_sql, serverName.c_str());
+
+        http.addHeader("Content-Type", "application/x-www-form-urlencoded");
+        message.line[strlen(message.line)] = 0; // Add the terminating null
+
+        int httpResponseCode = http.POST(message.line);
+        http.end();
+        if (httpResponseCode == 200)
+        {
+            Serial.println("retry passed");
+            return 0;
+        }
+
+        else
+        {
+            Serial.printf("retry failed rc %d\n", httpResponseCode);
+            disableTimer();
+            return 2;
+        }
     }
+}
+
+String find(String msg, String toFind)
+{
+    int index, index1, index2;
+    String tmp, sensor, location;
+
+    index = msg.indexOf(toFind);
+    tmp = msg.substring(index);
+    index1 = tmp.indexOf("=");
+    index2 = tmp.indexOf("&");
+    return tmp.substring(index1 + 1, index2);
 }

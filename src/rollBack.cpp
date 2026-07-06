@@ -3,7 +3,7 @@
 
 // command line on pi 
 //sudo curl http://localhost/post-esp-data.php -d "api_key=xxxxxx&sensor=BME&locstion....."
-//pi@raspberrypi:/var/www/html $ curl -G --data-urlencode "key=1" "http://192.168.1.9/parse.php"
+//pi@raspberrypi:/var/www/html $ curl -G --data-urlencode "key=1" "http:/localhost/parse.php"
 //1|1
 //BME680 
 
