@@ -7,11 +7,11 @@
 //1|1
 //BME680 
 
-int deleteRow(String phpScript);
+int deleteRow(const String & phpScript);
 String performHttpGet(const char *url);
 
 
-int deleteRow(String phpScript)
+int deleteRow(const String & phpScript)
 {
    String payload = performHttpGet(phpScript.c_str());
    Serial.printf("delete payload %s]n",payload.c_str());

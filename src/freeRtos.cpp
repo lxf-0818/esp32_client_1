@@ -92,14 +92,14 @@ void initRTOS();
 int socketRecovery(char *IP, char *cmd2Send, char *MAC);
 void taskSocketRecov(void *pvParameters);
 void taskSQL_HTTP(void *pvParameters);
-void setupHTTP_request(String sensorName, String sensorLocation, float tokens[]);
+void setupHTTP_request(const String & sensorName, const String & sensorLocation, float tokens[]);
 void taskBlink(void *pvParameters);
-void processSensorData(float tokens[DEVICES][5], String sensor);
+void processSensorData(float tokens[][5], const String &sensor);
 bool queStat();
-int deleteRow(String phpScript);
+int deleteRow(const String & phpScript);
 int socketClient(char *espServer, char *command);
 void updateBlynk();
-String ip2mac(String ip);
+String ip2mac(const String & ip);
 String performHttpGet(const char *url);
 void enableTimer();
 void disableTimer();
@@ -447,7 +447,7 @@ void taskSocketRecov(void *pvParameters)
  *          before calling this function. The function does not block if the queue
  *          is full.
  */
-void setupHTTP_request(String sensorName, String sensorLocation, float tokens[])
+void setupHTTP_request(const String &sensorName, const String &sensorLocation, float tokens[])
 {
     message_t message;
     if (QueHTTP_Handle != NULL && uxQueueSpacesAvailable(QueHTTP_Handle) > 0)

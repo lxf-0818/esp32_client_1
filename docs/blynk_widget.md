@@ -13,6 +13,7 @@ Defines Blynk virtual pin aliases used by client code.
 - `VRECOV` -> `V19`
 - `VFAIL` -> `V20`
 - `VRETRY` -> `V34`
+- `BOOT` -> `V10`
 
 ## Usage
 Include this header where Blynk virtual pins are written to improve readability and avoid duplicated literal pin IDs.

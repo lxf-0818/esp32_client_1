@@ -1,5 +1,7 @@
 # freeRtos.cpp
 
+Last updated: 2026-07-07
+
 ## Purpose
 Runs background tasks for queue-driven recovery and SQL HTTP posting, isolated from the main Blynk loop to reduce blocking behavior.
 
@@ -15,7 +17,7 @@ Runs background tasks for queue-driven recovery and SQL HTTP posting, isolated f
 ## Task Topology
 initRTOS creates three pinned tasks:
 - taskBlink (core 0, priority 1 - low): heartbeat LED toggle
-- taskSQL_HTTP (core 0, priority 2): POST sensor lines to backend
+- taskSQL_HTTP (core 0, priority 2): POST sensor lines to backend and validate last-insert bookkeeping
 - taskSocketRecov (core 1, priority 3 - high): retry failed socket calls
 
 Queue sizes and stack sizes are compile-time constants.
@@ -50,12 +52,15 @@ The queued recovery callback currently points to the 2-argument `socketClient` o
 - encoded post line payload
 - key for delete/recovery actions
 
+Note:
+The struct still contains a `device[10]` field in code, but `setupHTTP_request()` currently only fills `line` and `key`.
+
 ## Tasks
 
 | Task | Core | Priority | Stack | Delay |
-|---|---|---|---|---|
-| `taskBlink` | 0 | 1 | TASK_STACK_SIZE | BLINK_DELAY_MS |
-| `taskSQL_HTTP` | 0 | 2 | TASK_STACK_SIZE × 2 | HTTP_DELAY_MS |
+
+| `taskBlink`       | 0 | 1 | TASK_STACK_SIZE | BLINK_DELAY_MS |
+| `taskSQL_HTTP`    | 0 | 2 | TASK_STACK_SIZE × 2 | HTTP_DELAY_MS |
 | `taskSocketRecov` | 1 | 3 | TASK_STACK_SIZE × 2 | SOCKET_DELAY_MS |
 
 ## Main Functions
@@ -81,14 +86,14 @@ Return behavior:
 Consumer loop for HTTP queue:
 1. receives queued message
 2. sends POST to post-esp-data.php
-3. on HTTP 200, increments `passPost`, then verifies row consistency using `parse.php?key=<passPost>`
-4. if parse result mismatch (`pid != key`), deletes stale row via `delete.php?key=<pid>` and immediately retries POST once
-5. on non-200 POST, attempts delete/recovery path with retry limit and requeues message
+3. on HTTP 200, increments the task-local `passPost` counter, then verifies row consistency using `parse.php?key=<passPost>`
+4. `validateLastInsertRow()` parses the `pid|key,...` response and currently returns success even when the payload is malformed or `pid != key`; on mismatch it logs details and disables the watchdog timer before returning
+5. on non-200 POST, attempts `delete.php?key=<message.key>` with retry limit and requeues the same message
 
 Additional behavior:
 - Uses xMutex_http around HTTP transaction work.
 - Tracks `passPost` and `recovered` counters locally in task context.
-- If parse payload does not contain `|`, logs failure and restarts ESP32.
+- The code does not currently call `http.end()` on the non-200 path; the success path ends the request before validation.
 - Uses `delete.php?key=<id>` as the row cleanup endpoint on POST failure.
 
 ### taskSocketRecov(...)
@@ -113,7 +118,7 @@ Payload format:
 - value2=<tokens[2]>
 - value3=<tokens[3]>
 - value4=<passSocket>
-- value5=<passSocket>
+- value5=0
 
 Queue behavior:
 - Enqueues only when queue exists and has free space.
@@ -151,3 +156,6 @@ Covered cases:
 - mismatching `pid` and `key` (`pid != key`)
 - first-comma key parsing behavior
 - exact String comparison semantics (e.g., `"105"` vs `"0105"`)
+
+Gap:
+The unit tests exercise parsing/comparison behavior in isolation, but they do not cover the current production-side behavior where `validateLastInsertRow()` disables the watchdog timer and still returns success on mismatch.

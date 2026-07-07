@@ -12,7 +12,7 @@ Primary ESP32 client runtime for Blynk integration, backend polling, sensor fetc
   - starts loop watchdog ticker (`LWD_TIMEOUT` = 15 s)
   - starts FreeRTOS support (`initRTOS()`)
   - runs one immediate refresh (`refreshWidgets()`) to prime runtime counters
-  - initializes IP-location map used by recovery/deletion helpers (`createMap()`)
+  - initializes the sensor roster and IP-location maps used by recovery/deletion helpers (`createMap()`)
 - `loop()`:
   - feeds watchdog
   - runs Blynk
@@ -43,7 +43,7 @@ Primary ESP32 client runtime for Blynk integration, backend polling, sensor fetc
 - `BLYNK_WRITE(V18)`: clear backend rows via `deleteAll`
 - `BLYNK_WRITE(V49)`: terminal command parser
 - `BLYNK_WRITE(BLINK_TST)`: send `BLK` by selected sensor group
-- `BLYNK_WRITE(V10)`: send `RST` by selected sensor group
+- `BLYNK_WRITE(BOOT)`: send `RST` by selected sensor group
 
 Supported terminal commands (`V49`):
 - `list` - show valid commands
@@ -54,6 +54,8 @@ Supported terminal commands (`V49`):
 - `refr` - force an immediate refresh cycle
 - `i2c` - fetch and print node I2C mappings
 - `ip` - print de-duplicated IP/location list
+- `enable` - re-enable the periodic refresh timer
+- `disable` - pause the periodic refresh timer
 - `all` - print one live reading per registered sensor key
 
 Command parsing uses `startsWith(...)`, so valid command prefixes are accepted.
@@ -159,4 +161,5 @@ Notes:
 
 ## Notes
 - `getIP(...)` is currently commented out.
+- `getSensorData_new()` exists and refreshes `ipMap` by de-duplicating node IPs, but the active refresh path still uses `getSensorData()` plus `createMap()` for setup and terminal flows.
 - `netword` exists as a scratch `net_t` instance but is not used in the active flow.

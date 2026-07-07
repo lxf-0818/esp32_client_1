@@ -1,6 +1,6 @@
 # ESP32 Client Documentation
 
-Last updated: 2026-06-30
+Last updated: 2026-07-07
 
 ## Overview
 This project is an ESP32-based IoT client that:
@@ -28,8 +28,8 @@ Detailed module docs:
 - `docs/socketClient.md`: Socket protocol, CRC/AES handling, and recovery behavior.
 - `src/cryptography.cpp`: AES-128-CBC helpers and Wi-Fi credential decryption.
 - `docs/cryptography.md`: AES, LittleFS credential loading, and Wi-Fi decrypt flow.
-- `src/freeRtos.cpp`: RTOS task startup and scheduling support.
-- `docs/freeRtos.md`: FreeRTOS task, queue, mutex, and recovery flow reference.
+- `src/freeRtos.cpp`: RTOS task startup, queue consumers, retry handling, and SQL POST validation support.
+- `docs/freeRtos.md`: FreeRTOS task, queue, mutex, recovery flow, and HTTP post-validation reference.
 - `src/misc.cpp`: Shared utility helpers.
 - `src/rollBack.cpp`: Error queue handling and recovery helpers.
 - `src/blynk_widget.h`: Virtual pin IDs and widget constants.

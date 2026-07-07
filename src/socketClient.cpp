@@ -235,7 +235,7 @@ void printTokens(float tokens[DEVICES][5])
  *     Serial.println("Failed to get a response from the server.");
  * }
  */
-char *socketClient(char *espServer, String command)
+char *socketClient(char *espServer, const String &command)
 {
     int j = 0;
     WiFiClient client;

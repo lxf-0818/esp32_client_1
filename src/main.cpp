@@ -88,20 +88,20 @@ void editLoc();
 void initRTOS();
 void flashSSD();
 bool checkSSD();
-void blynkWrite(String cmd, int index);
+void blynkWrite(const String &cmd, int index);
 void refreshWidgets();
 void resetStats();
 void getBootTime(char *lastBook, char *strReason);
 int getSensorData(const String &sensorsConnected);
 int getSensorData_new();
 int createMap();
-void getSensorData4User(String input, String ip);
+void getSensorData4User(const String &input, const String &ip);
 int socketRecovery(char *IP, char *cmd2Send, char *MAC);
-void processSensorData(float tokens[DEVICES][5], String sesnor);
+void processSensorData(float tokens[DEVICES][5], const String &sesnor);
 String performHttpGet(const char *url);
 int decryptWifiCredentials(char *auth, char *ssid, char *psw);
 int socketClient(char *espServer, char *command);
-char *socketClient(char *espServer, String command);
+char *socketClient(char *espServer, const String &command);
 void upDateWidget(char *sensorName, float tokens[]);
 void dumpI2C();
 void lwdtFeed(void);
@@ -110,16 +110,16 @@ bool queStat();
 bool isServerConnected(const char *serverIP, uint16_t port = 8888);
 void generateInterrupt();
 void printUptime();
-String getIP(String sensorName);
+String getIP(const String &sensorName);
 void printTokens(float tokens[DEVICES][5]);
 void ping();
 void dumpIP();
-String mac2room(String sensor);
+String mac2room(const String & sensor);
 int parseInput(String input, String validCommand[], int count);
 void displayValidCmdList(String validCommand[], int count);
-void setupHTTP_request(String sensorName, String location, float tokens[]);
+void setupHTTP_request(const String &sensorName, const String &location, float tokens[]);
 void updateBlynk();
-String ip2mac(String ip);
+String ip2mac(const String & ip);
 void enableTimer();
 void disableTimer();
 
@@ -1130,7 +1130,7 @@ bool checkSSD()
  *         (e.g. `"192.168.1.5|"`), or an empty string if no match is found.
  */
 // #define DEBUG_
-// String getIP(String sensorName)
+// String getIP(const String & sensorName)
 // {
 //   String sensorKey = sensorName, returnIPstring = "", mapKey;
 //   sensorKey.toUpperCase();
@@ -1147,7 +1147,7 @@ bool checkSSD()
 //   return returnIPstring;
 // }
 
-void getSensorData4User(String userInput, String ip)
+void getSensorData4User(const String &userInput, const String &ip)
 {
   // Map 3-letter sensor prefixes to their device ID codes (used in tokens[i][0]).
   static const std::map<String, int> tagMap =
@@ -1162,19 +1162,19 @@ void getSensorData4User(String userInput, String ip)
 
   char tmp[512];
   String sensor = userInput;
-  userInput = userInput.substring(0, 3);
-  userInput.toLowerCase();
+  sensor = sensor.substring(0, 3);
+  sensor.toLowerCase();
 
   // Set output label and unit: default is temperature in Fahrenheit.
   String label = "Temp", postFix = "F", postFix2 = "%";
-  if (userInput.startsWith("adc"))
+  if (sensor.startsWith("adc"))
   {
     // ADS1115 (analog-to-digital converter) outputs voltage
     label = "Volt";
     postFix = "V";
     postFix2 = "V";
   }
-  if (userInput.startsWith("bmp") || userInput.startsWith("bmx"))
+  if (sensor.startsWith("bmp") || sensor.startsWith("bmx"))
     postFix2 = "Pa";
 
   // Poll the target IP for sensor data using the "ALL" command.
@@ -1186,10 +1186,10 @@ void getSensorData4User(String userInput, String ip)
     return;
   }
   // Look up the user-provided sensor prefix in the tag map.
-  auto it = tagMap.find(userInput);
+  auto it = tagMap.find(sensor);
   if (it == tagMap.end())
   {
-    Serial.printf("device not found .%s.\n", userInput.c_str());
+    Serial.printf("device not found .%s.\n", sensor.c_str());
     return; // Not found: abort.
   }
   int device = it->second; // Use the device code from the tag map.
@@ -1279,7 +1279,7 @@ void ping()
  * @param Sensor (e.g. "BME_x").
  * @return String Room/location text associated with the IP, or "" if missing.
  */
-String mac2room(String sensor)
+String mac2room(const String & sensor)
 {
   String location = "";
   // Map sensor MAC to room label for user-friendly terminal output.
@@ -1300,7 +1300,7 @@ String mac2room(String sensor)
  * @param cmd Null-terminated command string to send (typically "BLK" or "RST").
  * @param index Zero-based Blynk segmented-button index.
  */
-void blynkWrite(String cmd, int index)
+void blynkWrite(const String &cmd, int index)
 {
   // Labels must match the Blynk widget button order for virtual pin BLINK_TST (V9/V10):
   // the widget is set in setup() Blynk.setProperty(V9/V10,................
@@ -1350,7 +1350,7 @@ void blynkWrite(String cmd, int index)
  * @param ip Source IP address for this payload (currently informational).
  * @param mac Source MAC address used to resolve room/location via `maclocMap`.
  */
-void processSensorData(float tokens[DEVICES][5], String location)
+void processSensorData(float tokens[][5], const String &location)
 {
   const std::map<int, const char *> sensorMap =
       {
@@ -1441,7 +1441,7 @@ void updateBlynk()
 {
   Blynk.virtualWrite(V19, recoveredSocket);
 }
-String ip2mac(String ip)
+String ip2mac(const String & ip)
 {
   String rc = "";
   for (const auto &pair : ipMap)
