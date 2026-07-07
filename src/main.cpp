@@ -214,9 +214,9 @@ void setup()
   lwdtFeed();
   lwdTicker.attach_ms(LWD_TIMEOUT, lwdtcb); // attach lwdt callback routine to Ticker object
   initRTOS();
-  //refreshWidgets();
+  // refreshWidgets();
   int cnt = createMap();
-  Serial.printf(" Sensors: %d\n", cnt);
+  Serial.printf("Sensors: %d\n", cnt);
 
   Blynk.setProperty(BLINK_TST, "labels",
                     "Main Room", "ADC Guest Room", "Mud Room", "Master Bedroom",
@@ -547,9 +547,9 @@ void upDateWidget(char *sensor, float tokens[])
  *
  * @param phpScript Relative path of the PHP script to call (e.g. "/getRow.php").
  * @return String Response payload on success, or an empty string on failure.
- * 
+ *
  * @note If the macro DEBUG_PHP is defined, the response payload will be printed to the Serial monitor.
- * 
+ *
  */
 String performHttpGet(const char *phpScript)
 {
@@ -666,12 +666,12 @@ int getSensorData(const String &sensorsConnected)
       lastMsg = "socketClient failed:" + ip;
       // On socket failure, queue recovery and account the failed poll.
       Serial.printf("%s %s %s rc: %d\n", error.c_str(), ip.c_str(), location.c_str(), rc);
-      socketRecovery((char *)ip.c_str(), (char *)"ALL", (char *)name.c_str()); // current failed write to error recovery queue
+      socketRecovery((char *)ip.c_str(), (char *)"ALL", (char *)location.c_str()); // current failed write to error recovery queue
       failSocket++;
     }
     else
     {
-      processSensorData(tokens, name.c_str());
+      processSensorData(tokens, location.c_str());
     }
 
   } // end for
@@ -693,14 +693,21 @@ int getSensorData(const String &sensorsConnected)
 int getSensorData_new()
 {
   // Rebuild maps first so this polling pass uses the latest backend roster.
-  int cnt = createMap();
+  int sensorCnt = createMap();
+  if (!sensorCnt)
+  {
+    char tmp[50];
+    sprintf(tmp, "No sensors connected to network\n");
+    Blynk.virtualWrite(V39, tmp);
+    return 0;
+  }
 
   // Poll each unique IP once; ipMap is de-duplicated by device IP.
   for (const auto &pair : ipMap)
   {
     // Keep context strings for logs and recovery queue payload.
     String location = pair.second.location.c_str();
-    String name = pair.first.c_str();
+    String sensorName = pair.first.c_str();
     String ip = pair.second.ipAddress.c_str();
 
     // Clear shared token buffer before each node poll.
@@ -724,15 +731,15 @@ int getSensorData_new()
       lastMsg = "socketClient failed:" + ip;
       // On socket failure, queue recovery and account the failed poll.
       Serial.printf("%s %s %s rc: %d\n", error.c_str(), ip.c_str(), location.c_str(), rc);
-      socketRecovery((char *)ip.c_str(), (char *)"ALL", (char *)name.c_str()); // current failed write to error recovery queue
+      socketRecovery((char *)ip.c_str(), (char *)"ALL", (char *)sensorName.c_str()); // current failed write to error recovery queue
       failSocket++;
     }
     else
     {
-      processSensorData(tokens, name.c_str());
+      processSensorData(tokens, sensorName.c_str());
     }
   }
-  return cnt;
+  return sensorCnt;
 }
 
 /**
@@ -814,7 +821,7 @@ int createMap()
   // Build IP-indexed map to collapse multi-sensor devices into one reachable node entry.
   for (const auto &pair : netMap)
   {
-    // Serial.printf("create map %s\n", pair.first.c_str());
+   // Serial.printf("create map %s\n", pair.first.c_str());
     ipMap[pair.second.ipAddress.c_str()] = {pair.second.ipAddress.c_str(),
                                             pair.second.macAddress.c_str(),
                                             pair.second.location.c_str()};
@@ -1343,7 +1350,7 @@ void blynkWrite(String cmd, int index)
  * @param ip Source IP address for this payload (currently informational).
  * @param mac Source MAC address used to resolve room/location via `maclocMap`.
  */
-void processSensorData(float tokens[DEVICES][5], String sensor)
+void processSensorData(float tokens[DEVICES][5], String location)
 {
   const std::map<int, const char *> sensorMap =
       {
@@ -1355,11 +1362,7 @@ void processSensorData(float tokens[DEVICES][5], String sensor)
           {48, "ADS1115"},
           {40, "INA219 "},
           {28, "DS1"}};
-
-  String location = mac2room(sensor.c_str());
-  if (location.isEmpty())
-    Serial.printf("mac address not found\n");
-
+  
   for (int i = 0; i < 5; i++)
   {
     int sensorCode = static_cast<int>(tokens[i][0]);

@@ -124,7 +124,7 @@ typedef struct
     int (*fun_ptr)(char *, char *);
     char ipAddr[20];
     char cmd[20];
-    char sensor[20];
+    char location[20];
 } socket_t;
 socket_t socketQue;
 
@@ -232,7 +232,7 @@ void initRTOS()
  *       If the queue is full, the function calls `deleteIP.php?key=<ip>`, resets
  *       the queue, and clears recovery counters.
  */
-int socketRecovery(char *IP, char *cmd2Send, char *sensor)
+int socketRecovery(char *IP, char *cmd2Send, char *location)
 {
     if (QueSocket_Handle == NULL)
         Serial.println("QueSocket_Handle failed");
@@ -240,7 +240,7 @@ int socketRecovery(char *IP, char *cmd2Send, char *sensor)
     {
         socketQue.fun_ptr = &socketClient;
         strcpy(socketQue.ipAddr, IP);
-        strcpy(socketQue.sensor, sensor);
+        strcpy(socketQue.location, location);
         strcpy(socketQue.cmd, cmd2Send);
         BaseType_t ret = xQueueSend(QueSocket_Handle, (void *)&socketQue, 0);
 
@@ -400,7 +400,7 @@ void taskSocketRecov(void *pvParameters)
                 int x = (*socketQue.fun_ptr)(socketQue.ipAddr, socketQue.cmd);
                 if (!x)
                 {
-                    processSensorData(tokens, socketQue.sensor);
+                    processSensorData(tokens, socketQue.location);
                     recoveredSocket++;
                     updateBlynk();
                     Serial.printf("Recovered last network fail for host:%s waiting %d space left %d \n", socketQue.ipAddr,
@@ -408,7 +408,7 @@ void taskSocketRecov(void *pvParameters)
                     Serial.printf("passSocket %d failSocket %d  recovered %d retry %d \n", passSocket, failSocket, recoveredSocket, retry);
                 }
                 else
-                    socketRecovery(socketQue.ipAddr, socketQue.cmd, socketQue.sensor); //  write Fail to que here for recovery****
+                    socketRecovery(socketQue.ipAddr, socketQue.cmd, socketQue.location); //  write Fail to que here for recovery****
 
                 xSemaphoreGive(xMutex_sock);
             }
@@ -464,6 +464,7 @@ void setupHTTP_request(String sensorName, String sensorLocation, float tokens[])
 #ifdef DEBUG
         // if (!stop)
         Serial.printf("http req data %s passSocket %d\n", httpRequestData.c_str(), passSocket);
+        Serial.flush();
 #endif
 
         strcpy(message.line, httpRequestData.c_str());
@@ -586,10 +587,9 @@ int validateLastInsertRow(const int row, const String &msg)
 
     // }
 
-    Serial.printf("passPost %d pid %s key %s\n", row, pid.c_str(), key.c_str());
     float tokens[5];
 
-  //  test case
+    //  test case
     // if (pid == "6")
     //     key = "BM6:192.168.1.6";
 
@@ -597,7 +597,7 @@ int validateLastInsertRow(const int row, const String &msg)
         return 0;
     else
     {
-        
+        Serial.printf("passPost %d pid %s key %s\n", row, pid.c_str(), key.c_str());
         HTTPClient http;
         WiFiClient client_sql;
         String serverName = phpServerIP + "post-esp-data.php";
