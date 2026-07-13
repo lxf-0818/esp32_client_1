@@ -95,7 +95,7 @@ void getBootTime(char *lastBook, char *strReason);
 int getSensorData(const String &sensorsConnected);
 int getSensorData_new();
 int createMap();
-void getSensorData4User(const String &input, const String &ip);
+void getSensorData4User(const String &input, const String &ip,const String &room);
 int socketRecovery(char *IP, char *cmd2Send, char *MAC);
 void processSensorData(float tokens[DEVICES][5], const String &sesnor);
 String performHttpGet(const char *url);
@@ -114,12 +114,12 @@ String getIP(const String &sensorName);
 void printTokens(float tokens[DEVICES][5]);
 void ping();
 void dumpIP();
-String mac2room(const String & sensor);
+String mac2room(const String &sensor);
 int parseInput(String input, String validCommand[], int count);
 void displayValidCmdList(String validCommand[], int count);
 void setupHTTP_request(const String &sensorName, const String &location, float tokens[]);
 void updateBlynk();
-String ip2mac(const String & ip);
+String ip2mac(const String &ip);
 void enableTimer();
 void disableTimer();
 
@@ -210,7 +210,7 @@ void setup()
     flashSSD();
 
   // Serial.println("Turned off timer in setup()");
-  timerID1 = timer.setInterval(1000L * 20, refreshWidgets); //
+  timerID1 = timer.setInterval(1000L * 5, refreshWidgets); //
   lwdtFeed();
   lwdTicker.attach_ms(LWD_TIMEOUT, lwdtcb); // attach lwdt callback routine to Ticker object
   initRTOS();
@@ -821,7 +821,7 @@ int createMap()
   // Build IP-indexed map to collapse multi-sensor devices into one reachable node entry.
   for (const auto &pair : netMap)
   {
-   // Serial.printf("create map %s\n", pair.first.c_str());
+    // Serial.printf("create map %s\n", pair.first.c_str());
     ipMap[pair.second.ipAddress.c_str()] = {pair.second.ipAddress.c_str(),
                                             pair.second.macAddress.c_str(),
                                             pair.second.location.c_str()};
@@ -985,7 +985,7 @@ BLYNK_WRITE(V49)
   case 10:
     timer.disable(timerID1); // pause periodic refresh to prevent socket contention during user input
     for (const auto &pair : netMap)
-      getSensorData4User(pair.first.c_str(), pair.second.ipAddress.c_str());
+      getSensorData4User(pair.first.c_str(), pair.second.ipAddress.c_str(),pair.second.location.c_str());
     timer.enable(timerID1);
     break;
   }
@@ -1147,7 +1147,7 @@ bool checkSSD()
 //   return returnIPstring;
 // }
 
-void getSensorData4User(const String &userInput, const String &ip)
+void getSensorData4User(const String &userInput, const String &ip,const String &room)
 {
   // Map 3-letter sensor prefixes to their device ID codes (used in tokens[i][0]).
   static const std::map<String, int> tagMap =
@@ -1203,7 +1203,7 @@ void getSensorData4User(const String &userInput, const String &ip)
     {
       deviceFound = true;
       // Resolve the target MAC to a human-readable room/location label.
-      String room = mac2room(sensor.c_str());
+      //String room = mac2room(sensor.c_str());
       sprintf(tmp, "%s %.1f %s %.1f %s %s \n",
               label.c_str(), tokens[i][1], postFix.c_str(), tokens[i][2], postFix2.c_str(), room.c_str());
       Blynk.virtualWrite(V49, tmp);
@@ -1279,7 +1279,7 @@ void ping()
  * @param Sensor (e.g. "BME_x").
  * @return String Room/location text associated with the IP, or "" if missing.
  */
-String mac2room(const String & sensor)
+String mac2room(const String &sensor)
 {
   String location = "";
   // Map sensor MAC to room label for user-friendly terminal output.
@@ -1362,7 +1362,7 @@ void processSensorData(float tokens[][5], const String &location)
           {48, "ADS1115"},
           {40, "INA219 "},
           {28, "DS1"}};
-  
+
   for (int i = 0; i < 5; i++)
   {
     int sensorCode = static_cast<int>(tokens[i][0]);
@@ -1418,8 +1418,8 @@ void dumpI2C()
       index2 = data.indexOf("|");
       String scl = data.substring(index1 + 1, index2);
       String location = pair.second.location.c_str();
-      sprintf(tmp, "Location: %s  I2Caddr :0x%s  \n\t sca:%s scl:%s\n",
-              location.c_str(), i2cAddress.c_str(), sca.c_str(), scl.c_str());
+      sprintf(tmp, "I2C@: 0x%s:%s\n\t sca:%s scl:%s\n ",
+              i2cAddress.c_str(), location.c_str(), sca.c_str(), scl.c_str());
 
       Blynk.virtualWrite(V49, tmp);
       // Move to the next tuple in the stream.
@@ -1441,7 +1441,7 @@ void updateBlynk()
 {
   Blynk.virtualWrite(V19, recoveredSocket);
 }
-String ip2mac(const String & ip)
+String ip2mac(const String &ip)
 {
   String rc = "";
   for (const auto &pair : ipMap)

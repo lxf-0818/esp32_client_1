@@ -70,7 +70,7 @@
 #define HTTP_DELAY_MS 100
 #define BLINK_DELAY_MS 1000
 #define INPUT_BUFFER_LIMIT 2048
-#define MAX_LINE_LENGTH 120
+#define MAX_LINE_LENGTH 256
 #define LED_BUILTIN 2
 #define MAX_RETRY 5
 #define DEVICES 8
@@ -92,14 +92,14 @@ void initRTOS();
 int socketRecovery(char *IP, char *cmd2Send, char *MAC);
 void taskSocketRecov(void *pvParameters);
 void taskSQL_HTTP(void *pvParameters);
-void setupHTTP_request(const String & sensorName, const String & sensorLocation, float tokens[]);
+void setupHTTP_request(const String &sensorName, const String &sensorLocation, float tokens[]);
 void taskBlink(void *pvParameters);
 void processSensorData(float tokens[][5], const String &sensor);
 bool queStat();
-int deleteRow(const String & phpScript);
+int deleteRow(const String &phpScript);
 int socketClient(char *espServer, char *command);
 void updateBlynk();
-String ip2mac(const String & ip);
+String ip2mac(const String &ip);
 String performHttpGet(const char *url);
 void enableTimer();
 void disableTimer();
@@ -459,17 +459,20 @@ void setupHTTP_request(const String &sensorName, const String &sensorLocation, f
         httpRequestData += "&value2=" + String(tokens[2]);
         httpRequestData += "&value3=" + String(tokens[3]);
         httpRequestData += "&value4=" + String(passSocket);
-        httpRequestData += "&value5=" + String("0");
-#define DEBUG
+        httpRequestData += "&value5=" + String(passSocket);
+#define DEBUG_
 #ifdef DEBUG
-        // if (!stop)
         Serial.printf("http req data %s passSocket %d\n", httpRequestData.c_str(), passSocket);
         Serial.flush();
 #endif
-
-        strcpy(message.line, httpRequestData.c_str());
+        if (httpRequestData.length() >= sizeof(message.line))
+        {
+            Serial.printf("setupHTTP_request: payload too long (%u >= %u)\n",
+                          (unsigned)httpRequestData.length(), (unsigned)sizeof(message.line));
+            return;
+        }
+        httpRequestData.toCharArray(message.line, sizeof(message.line)); // bounded + null-terminated
         message.key = passSocket;
-        // Serial.printf("message key %d\n", passSocket);
         message.line[strlen(message.line)] = 0; // Add the terminating null
         int ret = xQueueSend(QueHTTP_Handle, (void *)&message, 0);
         if (ret == pdTRUE)
