@@ -320,6 +320,10 @@ void taskSQL_HTTP(void *pvParameters)
                 http.begin(client_sql, serverName.c_str());
                 http.addHeader("Content-Type", "application/x-www-form-urlencoded");
                 int httpResponseCode = http.POST(message.line);
+#define TEST_
+#ifdef TEST
+                httpResponseCode = 0;
+#endif
                 if (httpResponseCode == 200)
                 {
                     vTaskDelay(xDelay);
@@ -327,21 +331,17 @@ void taskSQL_HTTP(void *pvParameters)
                     String msg = message.line;
                     String payload = http.getString();
                     http.end();
-#define TEST_
-#ifndef TEST
+
                     if (passPost != payload.toInt())
                     {
                         Serial.printf("passPost %d payload %s\n", passPost, payload.c_str());
-                        validateLastInsertRow(passPost, msg);
+                        disableTimer();
                     }
-#else
-
-                    validateLastInsertRow(passPost, msg);
-
-#endif
                 }
                 else
                 {
+                    disableTimer();
+                    continue;
                     String phpScript = "delete.php?key=" + (String)message.key;
                     Serial.printf("php Script %s\n", phpScript.c_str());
                     // failPost++;
@@ -635,7 +635,7 @@ int validateLastInsertRow(const int row, const String &msg)
 
         String tmp, sensor, location, value;
         Serial.printf("parse.php lastInsertResults %s last insert failed .%s. .%s.\n", lastInsertResults.c_str(), pid.c_str(), key.c_str());
-        Serial.printf("msg %s\n serveName %s\n", msg.c_str(),serverName.c_str());
+        Serial.printf("msg %s\n serveName %s\n", msg.c_str(), serverName.c_str());
 
         // api_key=tPmAT5Ab3j7F9&sensor=BME280&location=Laundry Room&value1=80.53&value2=59.51&value3=230.65&value4=6&value5=0
 
@@ -661,7 +661,7 @@ int validateLastInsertRow(const int row, const String &msg)
         httpRequestData += "&value3=" + String(tokens[2]);
         httpRequestData += "&value4=" + String(row + 1);
         httpRequestData += "&value5=" + String("1");
-        
+
         httpRequestData.toCharArray(message.line, sizeof(message.line)); // bounded + null-terminated
         return 0;
         http.begin(client_sql, serverName.c_str());
