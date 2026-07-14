@@ -44,7 +44,7 @@
  *
  * - **Structs**:
  *   - `socket_t`: Represents a socket recovery task with a function pointer, IP address, MAC address and command.
- *   - `message_t`: Represents an HTTP message with device information, data, and a key.
+ *   - `httpMsg_t`: Represents an HTTP message with device information, data, and a key.
  *
  * @note The code is designed to run on an ESP32 microcontroller using the Arduino framework.
  * @note The HTTP and socket operations are designed to handle errors and recover gracefully.
@@ -89,7 +89,7 @@ bool stop = false;
 
 // Function Prototypes
 void initRTOS();
-int socketRecovery(char *IP, char *cmd2Send, char *MAC);
+int socketRecovery(char *IP, char *cmd2Send, char *location);
 void taskSocketRecov(void *pvParameters);
 void taskSQL_HTTP(void *pvParameters);
 void setupHTTP_request(const String &sensorName, const String &sensorLocation, float tokens[]);
@@ -105,6 +105,7 @@ void enableTimer();
 void disableTimer();
 int validateLastInsertRow(const int row, const String &msg);
 String find(String msg, String toFind);
+void setTokens(int failCnt);
 
 // Struct Definitions
 /**
@@ -129,11 +130,11 @@ typedef struct
 socket_t socketQue;
 
 /**
- * @struct message_t
+ * @struct httpMsg_t
  * @brief C-style `typedef struct` alias used for HTTP queue message payloads.
  *
  * Like `socket_t`, this uses `typedef struct` to define and alias the type in
- * one step. The resulting `message_t` type is passed through FreeRTOS queues
+ * one step. The resulting `httpMsg_t` type is passed through FreeRTOS queues
  * and reused across HTTP helper routines.
  * @var device  Device name/identifier (max 10 chars).
  * @var line    Formatted HTTP POST data payload (max MAX_LINE_LENGTH chars).
@@ -144,8 +145,8 @@ typedef struct
     char device[10];
     char line[MAX_LINE_LENGTH];
     int key;
-} message_t;
-message_t message;
+} httpMsg_t;
+httpMsg_t message;
 
 /**
  * @brief Initializes the FreeRTOS components for the application.
@@ -189,7 +190,7 @@ void initRTOS()
     if (QueSocket_Handle == NULL)
         Serial.println("Queue  socket could not be created..");
 
-    QueHTTP_Handle = xQueueCreate(HTTP_QUEUE_SIZE, sizeof(message_t));
+    QueHTTP_Handle = xQueueCreate(HTTP_QUEUE_SIZE, sizeof(httpMsg_t));
     if (QueHTTP_Handle == NULL)
         Serial.println("Queue could not be created..");
 
@@ -248,11 +249,16 @@ int socketRecovery(char *IP, char *cmd2Send, char *location)
         {
             Serial.println(".......unable to send data to socket  Queue is Full");
             String macAddr = ip2mac(IP);
+
             if (!macAddr.isEmpty())
             {
                 String phpScript = "deleteMAC.php?key=" + (String)macAddr;
-                Serial.printf("php Script %s mac %s\n", phpScript.c_str(), macAddr.c_str());
                 performHttpGet(phpScript.c_str());
+                Serial.printf("PHP Script %s \n", phpScript.c_str());
+            }
+            else
+            {
+                Serial.printf("ip not found ipMap %s\n", IP);
             }
             xQueueReset(QueSocket_Handle); // clear stale etries in que since its full
             failSocket = retry = recoveredSocket = 0;
@@ -316,11 +322,23 @@ void taskSQL_HTTP(void *pvParameters)
                 int httpResponseCode = http.POST(message.line);
                 if (httpResponseCode == 200)
                 {
-                    passPost++;
                     vTaskDelay(xDelay);
+                    passPost++;
                     String msg = message.line;
+                    String payload = http.getString();
                     http.end();
+#define TEST_
+#ifndef TEST
+                    if (passPost != payload.toInt())
+                    {
+                        Serial.printf("passPost %d payload %s\n", passPost, payload.c_str());
+                        validateLastInsertRow(passPost, msg);
+                    }
+#else
+
                     validateLastInsertRow(passPost, msg);
+
+#endif
                 }
                 else
                 {
@@ -384,6 +402,7 @@ void taskSocketRecov(void *pvParameters)
     socket_t socketQue;
     uint32_t socket_delay = *((uint32_t *)pvParameters);
     const TickType_t xDelay = socket_delay / portTICK_PERIOD_MS;
+    int retryPerIO = 0;
     Serial.printf("Task Socket Recovery running on CoreID:%d xDelay:%u ms Free Bytes:%d\n",
                   (unsigned int)xPortGetCoreID(), (unsigned int)xDelay, uxTaskGetStackHighWaterMark(socket_task_handle) * WORDS_PER_BYTE);
     for (;;)
@@ -397,9 +416,11 @@ void taskSocketRecov(void *pvParameters)
                 xSemaphoreTake(xMutex_sock, portMAX_DELAY);
                 vTaskDelay(xDelay);
                 retry++;
+                retryPerIO++;
                 int x = (*socketQue.fun_ptr)(socketQue.ipAddr, socketQue.cmd);
                 if (!x)
                 {
+                    setTokens(retryPerIO); // for all devices
                     processSensorData(tokens, socketQue.location);
                     recoveredSocket++;
                     updateBlynk();
@@ -417,39 +438,47 @@ void taskSocketRecov(void *pvParameters)
 }
 
 /**
- * @brief Builds and enqueues a URL-encoded HTTP POST payload.
+ * @brief Builds and enqueues a URL-encoded HTTP POST payload for SQL logging.
  *
- * This function constructs an HTTP POST body using the provided sensor name,
- * location, token values, and `phpKey`. The encoded payload is copied into a
- * `message_t` structure and enqueued on `QueHTTP_Handle`.
+ * Creates a form body for `post-esp-data.php` and pushes it to `QueHTTP_Handle`
+ * as a `httpMsg_t` item (non-blocking send).
  *
- * @param sensorName The name of the sensor to include in the HTTP request.
- * @param sensorLocation Logical location string associated with the sensor.
- * @param tokens An array of float values used to populate the HTTP request data.
- *               - tokens[1]: Base measurement value.
- *               - tokens[2]: Secondary measurement value.
- *               - tokens[3]: Queue key value (sent as value3 and stored as message key).
+ * Payload format:
+ * - `api_key=<phpKey>`
+ * - `sensor=<sensorName>`
+ * - `location=<sensorLocation>`
+ * - `value1=<tokens[1]>`
+ * - `value2=<tokens[2]>`
+ * - `value3=<tokens[3]>`
+ * - `value4=<passSocket>`
+ * - `value5=<tokens[4] as retry count>`
  *
- * @note The function uses external `phpKey` and `QueHTTP_Handle`.
+ * @param sensorName      Sensor identifier.
+ * @param sensorLocation  Logical location label.
+ * @param tokens          Float array used by index:
+ *                        - tokens[1], tokens[2], tokens[3], tokens[4]
  *
- * @details The constructed HTTP request string includes the following parameters:
- *          - api_key: A predefined API key, read from LittleFS.
- *          - sensor: The provided sensor name.
- *          - location: The provided `sensorLocation` argument.
- *          - value1, value2: Values from the `tokens` array.
- *          - value3: The value of `tokens[3]`.
+ * @details
+ * - Uses a local `httpMsg_t` object and copies request text into `message.line`.
+ * - Rejects payloads that do not fit in `message.line` (`MAX_LINE_LENGTH`).
+ * - Sets `message.key = passSocket`.
+ * - Uses `xQueueSend(..., 0)` (no wait); if queue is full, enqueue fails immediately.
  *
- * If the queue is full, the function logs a message to serial output.
- * If the queue handle is null or no queue slot is available, the message is
- * dropped (non-blocking enqueue path).
+ * @note
+ * - The function currently gates enqueue with `uxQueueSpacesAvailable(...) > 0`,
+ *   then performs `xQueueSend(...)`. This is non-atomic in multi-task contexts.
+ * - If queue handle is null or no slot is available at check time, the function
+ *   exits without enqueue.
  *
- * @warning Ensure that `QueHTTP_Handle` is initialized and has sufficient space
- *          before calling this function. The function does not block if the queue
- *          is full.
+ * @warning
+ * - `tokens` must be valid and contain at least 5 elements.
+ * - Indices are intentionally 1-based in this code path.
  */
 void setupHTTP_request(const String &sensorName, const String &sensorLocation, float tokens[])
 {
-    message_t message;
+    httpMsg_t message;
+    int retryCnt = tokens[4];
+
     if (QueHTTP_Handle != NULL && uxQueueSpacesAvailable(QueHTTP_Handle) > 0)
     {
         String httpRequestData = "api_key=" + phpKey;
@@ -459,7 +488,7 @@ void setupHTTP_request(const String &sensorName, const String &sensorLocation, f
         httpRequestData += "&value2=" + String(tokens[2]);
         httpRequestData += "&value3=" + String(tokens[3]);
         httpRequestData += "&value4=" + String(passSocket);
-        httpRequestData += "&value5=" + String(passSocket);
+        httpRequestData += "&value5=" + String(retryCnt);
 #define DEBUG_
 #ifdef DEBUG
         Serial.printf("http req data %s passSocket %d\n", httpRequestData.c_str(), passSocket);
@@ -469,11 +498,12 @@ void setupHTTP_request(const String &sensorName, const String &sensorLocation, f
         {
             Serial.printf("setupHTTP_request: payload too long (%u >= %u)\n",
                           (unsigned)httpRequestData.length(), (unsigned)sizeof(message.line));
+            disableTimer();
             return;
         }
         httpRequestData.toCharArray(message.line, sizeof(message.line)); // bounded + null-terminated
         message.key = passSocket;
-        message.line[strlen(message.line)] = 0; // Add the terminating null
+        // message.line[strlen(message.line)] = 0; // Add the terminating null
         int ret = xQueueSend(QueHTTP_Handle, (void *)&message, 0);
         if (ret == pdTRUE)
         {
@@ -579,37 +609,33 @@ int validateLastInsertRow(const int row, const String &msg)
     int index = lastInsertResults.indexOf("|");
     if (index < 0)
     {
-        Serial.printf("parse.php failed %s\n mgs line %s\n", lastInsertResults.c_str(), message.line);
+        Serial.printf("parse.php failed row %d results last %s \n", row, lastInsertResults.c_str());
+        disableTimer();
         return 0;
     }
     String pid = lastInsertResults.substring(0, index);
     int index1 = lastInsertResults.indexOf(",");
     String key = lastInsertResults.substring(index + 1, index1);
-    // for (int i = 0; i < key.length(); i++)
-    // {
-
-    // }
-
     float tokens[5];
 
     //  test case
-    // if (pid == "6")
-    //     key = "BM6:192.168.1.6";
+    if (pid == "5")
+        key = "0";
 
     if (pid == key)
         return 0;
     else
     {
+        disableTimer();
         Serial.printf("passPost %d pid %s key %s\n", row, pid.c_str(), key.c_str());
+        return 1;
         HTTPClient http;
         WiFiClient client_sql;
         String serverName = phpServerIP + "post-esp-data.php";
 
         String tmp, sensor, location, value;
         Serial.printf("parse.php lastInsertResults %s last insert failed .%s. .%s.\n", lastInsertResults.c_str(), pid.c_str(), key.c_str());
-        Serial.printf("msg %s\n", msg.c_str());
-        disableTimer();
-        return 0; // return good but timer is disable
+        Serial.printf("msg %s\n serveName %s\n", msg.c_str(),serverName.c_str());
 
         // api_key=tPmAT5Ab3j7F9&sensor=BME280&location=Laundry Room&value1=80.53&value2=59.51&value3=230.65&value4=6&value5=0
 
@@ -623,10 +649,10 @@ int validateLastInsertRow(const int row, const String &msg)
         {
             tmp = ("value" + String(i) + "=");
             value = find(msg, tmp);
-            Serial.println(value);
+            Serial.printf("i %d value %s \n", i, value.c_str());
             tokens[i] = atof(value.c_str());
         }
-        setupHTTP_request(sensor, location, tokens);
+
         String httpRequestData = "api_key=" + phpKey;
         httpRequestData += "&sensor=" + sensor;
         httpRequestData += "&location=" + location;
@@ -635,13 +661,11 @@ int validateLastInsertRow(const int row, const String &msg)
         httpRequestData += "&value3=" + String(tokens[2]);
         httpRequestData += "&value4=" + String(row + 1);
         httpRequestData += "&value5=" + String("1");
-        strcpy(message.line, httpRequestData.c_str());
-
+        
+        httpRequestData.toCharArray(message.line, sizeof(message.line)); // bounded + null-terminated
+        return 0;
         http.begin(client_sql, serverName.c_str());
-
         http.addHeader("Content-Type", "application/x-www-form-urlencoded");
-        message.line[strlen(message.line)] = 0; // Add the terminating null
-
         int httpResponseCode = http.POST(message.line);
         http.end();
         if (httpResponseCode == 200)
@@ -669,4 +693,27 @@ String find(String msg, String toFind)
     index1 = tmp.indexOf("=");
     index2 = tmp.indexOf("&");
     return tmp.substring(index1 + 1, index2);
+}
+/**
+ * @brief Set retry/failure count for active device token rows.
+ *
+ * Iterates through the global `tokens[DEVICES][5]` table and writes `failCnt`
+ * into column `[4]` for each active row. Iteration stops at the first row
+ * whose activity marker `tokens[i][0]` is zero.
+ *
+ * @param failCnt Retry/failure count to store in `tokens[i][4]`.
+ *
+ * @note A row is considered active when `tokens[i][0] != 0`.
+ * @warning This function mutates shared global state; protect with a mutex if
+ *          called concurrently from multiple tasks.
+ */
+void setTokens(int failCnt)
+{
+    for (int i = 0; i < DEVICES; i++)
+    {
+        if (!tokens[i][0])
+            break;
+
+        tokens[i][4] = failCnt;
+    }
 }

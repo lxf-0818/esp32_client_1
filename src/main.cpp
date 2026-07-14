@@ -384,7 +384,7 @@ BLYNK_CONNECTED()
   Blynk.virtualWrite(VRETRY, 0); //   "   retry
   Blynk.virtualWrite(V39, "boot");
   String payload;
-// #define TEST
+ #define TEST_
 #ifdef TEST
   payload = performHttpGet(deleteAll);
   Serial.println("WARNING TRUNCATE DB");
@@ -1307,7 +1307,6 @@ void blynkWrite(const String &cmd, int index)
 
   int elements = menuList->length();
   elements--; // don't count EOL
-  Serial.printf("index %d sizeof %d\n", index, elements);
 
   bool found = false;
   char *str = nullptr;
@@ -1448,7 +1447,7 @@ String ip2mac(const String &ip)
   {
     if (pair.second.ipAddress == ip.c_str())
     {
-      Serial.printf("mac @ %s\n", pair.second.macAddress.c_str());
+     // Serial.printf("mac @ %s\n", pair.second.macAddress.c_str());
       return pair.second.macAddress.c_str();
     }
   }

@@ -189,7 +189,7 @@ int socketClient(char *espServer, char *command)
  */
 void printTokens(float tokens[DEVICES][5])
 {
-    for (int i = 0; i < 5; i++)
+    for (int i = 0; i < DEVICES; i++)
     {
         if (!tokens[i][0])
             break;
