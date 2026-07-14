@@ -118,7 +118,7 @@ void setTokens(int failCnt);
  * @var fun_ptr Function pointer to the recovery function (typically `socketClient`).
  * @var ipAddr  Null-terminated IP address string (max 20 chars).
  * @var cmd     Null-terminated command string (max 20 chars).
- * @var sensor  Null-terminated sensor/source label string (max 20 chars).
+ * @var location Null-terminated location or sensor-key context string (max 20 chars).
  */
 typedef struct
 {
@@ -220,17 +220,17 @@ void initRTOS()
  * @brief Enqueues a failed socket operation for asynchronous recovery.
  *
  * This function fills a `socket_t` payload with the target host, command, and
- * sensor/source identifier, then sends it to `QueSocket_Handle`. If the queue is
+ * location/context identifier, then sends it to `QueSocket_Handle`. If the queue is
  * full, it triggers cleanup on the backend and resets the recovery queue.
  *
  * @param IP Pointer to a character array containing the IP address.
  * @param cmd2Send Pointer to a character array containing the command to send.
- * @param sensor Pointer to a character array containing the source sensor label.
+ * @param location Pointer to a character array containing location or sensor-key context.
  * @return int `pdTRUE` (1) if the structure was successfully sent to the queue,
  *             `errQUEUE_FULL` (0) if the queue is full, or 10 if the queue handle is NULL.
  *
  * @note Ensure that `QueSocket_Handle` is initialized before calling this function.
- *       If the queue is full, the function calls `deleteIP.php?key=<ip>`, resets
+ *       If the queue is full, the function calls `deleteMAC.php?key=<mac>`, resets
  *       the queue, and clears recovery counters.
  */
 int socketRecovery(char *IP, char *cmd2Send, char *location)
@@ -260,7 +260,7 @@ int socketRecovery(char *IP, char *cmd2Send, char *location)
             {
                 Serial.printf("ip not found ipMap %s\n", IP);
             }
-            xQueueReset(QueSocket_Handle); // clear stale etries in que since its full
+            xQueueReset(QueSocket_Handle); // clear stale entries in queue since it is full
             failSocket = retry = recoveredSocket = 0;
         }
         return ret;
@@ -320,10 +320,6 @@ void taskSQL_HTTP(void *pvParameters)
                 http.begin(client_sql, serverName.c_str());
                 http.addHeader("Content-Type", "application/x-www-form-urlencoded");
                 int httpResponseCode = http.POST(message.line);
-#define TEST_
-#ifdef TEST
-                httpResponseCode = 0;
-#endif
                 if (httpResponseCode == 200)
                 {
                     vTaskDelay(xDelay);
@@ -340,8 +336,9 @@ void taskSQL_HTTP(void *pvParameters)
                 }
                 else
                 {
+                    Serial.printf("last insert failed %d\n", httpResponseCode);
                     disableTimer();
-                    continue;
+                    continue;  // 
                     String phpScript = "delete.php?key=" + (String)message.key;
                     Serial.printf("php Script %s\n", phpScript.c_str());
                     // failPost++;

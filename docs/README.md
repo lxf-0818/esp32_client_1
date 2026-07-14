@@ -1,6 +1,6 @@
 # ESP32 Client Documentation
 
-Last updated: 2026-07-07
+Last updated: 2026-07-14
 
 ## Overview
 This project is an ESP32-based IoT client that:
@@ -38,10 +38,10 @@ Detailed module docs:
 ## Runtime Flow
 1. `setup()` starts Serial, decrypts Wi-Fi credentials, and starts Blynk.
 2. `setup()` checks OLED and shows startup info if display is present.
-3. `setup()` schedules `refreshWidgets()` every 20 seconds.
+3. `setup()` schedules `refreshWidgets()` every 5 seconds.
 4. `setup()` starts ticker for the software watchdog.
-5. `setup()` initializes RTOS support and runs one immediate widget refresh.
-6. `setup()` calls `createMap()` to initialize the IP-to-location map used by recovery helpers.
+5. `setup()` initializes RTOS support.
+6. `setup()` calls `createMap()` to initialize `netMap` and de-duplicated `ipMap` before periodic refresh.
 7. `loop()` continuously runs `lwdtFeed()`, `Blynk.run()`, and `timer.run()`.
 8. `refreshWidgets()` fetches current sensor roster from HTTP (`macip.php`), rebuilds runtime state, and updates Blynk stats.
 9. Sensor data is read via `socketClient()` and forwarded to backend and selected Blynk widgets.
@@ -64,7 +64,7 @@ Important handlers in `src/main.cpp`:
 - `BLYNK_WRITE(V49)`: Terminal command parser.
 - `BLYNK_WRITE(V18)`: Clears backend sensor rows via `truncate.php`.
 - `BLYNK_WRITE(BLINK_TST)`: Sends `BLK` command to selected sensor group (or all).
-- `BLYNK_WRITE(V10)`: Sends `RST` command to selected sensor group (or all).
+- `BLYNK_WRITE(BOOT)`: Sends `RST` command to selected sensor group (or all).
 
 ### Terminal Commands on V49
 - `list`: show valid commands
@@ -75,12 +75,14 @@ Important handlers in `src/main.cpp`:
 - `refr`: clear last sensor snapshot and force immediate refresh
 - `i2c`: print I2C mapping from each node
 - `ip`: print de-duplicated `ipAddress -> location` list
+- `enable`: enable the periodic refresh timer
+- `disable`: disable the periodic refresh timer
 - `all`: iterate all `netMap` entries and print live readings
 
 Command parsing uses `startsWith(...)`, so valid command prefixes are accepted.
 
 ## Network Endpoints
-The client currently uses fixed local endpoints in `src/main.cpp`:
+The client uses script-path constants in `src/main.cpp` and prepends host/base URL from `phpServerIP`:
 - `rows.php`
 - `truncate.php`
 - `ip.php`
@@ -88,9 +90,9 @@ The client currently uses fixed local endpoints in `src/main.cpp`:
 - `deleteMAC.php`
 - `post-esp-data.php` (used by RTOS HTTP queue task)
 
-If your server IP changes, update these constants.
+If your backend host changes, update the value source that initializes `phpServerIP`.
 
-Note: `data/api.txt` exists in this project and is loaded by FreeRTOS HTTP queue logic. Host constants in `main.cpp` are still hardcoded.
+Note: `data/api.txt` is expected and used to provide backend base URL data.
 
 ## Watchdog Behavior
 A software loop watchdog is implemented with `Ticker`:
@@ -111,7 +113,7 @@ At startup, `decryptWifiCredentials()` (implemented in `src/cryptography.cpp`) r
 
 ## Security Notes
 - Do not commit real tokens, keys, or passwords.
-- Move Blynk auth token and API host into encrypted files or build flags if possible.
+- Move Blynk auth token and API host into encrypted files or build flags if possible. updated
 - Consider replacing plain HTTP with authenticated HTTPS where hardware and server resources allow.
 
 ## Common PlatformIO Commands
@@ -132,6 +134,5 @@ From project root:
 - If frequent reboots occur, inspect watchdog logs on serial monitor and reduce blocking work in loop callbacks.
 
 ## Recommended Next Improvements
-- Move hardcoded HTTP endpoint host into `data/api.txt` and load at startup.
 - Add retries and timeout metrics around HTTP GET and socket operations.
 - Add unit tests for parser logic in `getSensorData()` and command parsing in `BLYNK_WRITE(V49)`.

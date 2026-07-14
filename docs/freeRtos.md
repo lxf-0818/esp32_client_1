@@ -1,6 +1,6 @@
 # freeRtos.cpp
 
-Last updated: 2026-07-07
+Last updated: 2026-07-14
 
 ## Purpose
 Runs background tasks for queue-driven recovery and SQL HTTP posting, isolated from the main Blynk loop to reduce blocking behavior.
@@ -13,6 +13,7 @@ Runs background tasks for queue-driven recovery and SQL HTTP posting, isolated f
 - xMutex_sock: socket synchronization mutex
 - xMutex_http: HTTP synchronization mutex
 - phpKey: API key string consumed by RTOS HTTP task logic (loaded in login flow via decryptWifiCredentials())
+- phpServerIP: base URL prefix used by RTOS HTTP task logic (set during boot/login init)
 
 ## Task Topology
 initRTOS creates three pinned tasks:
@@ -30,7 +31,7 @@ Current constants:
 - HTTP_DELAY_MS = 100
 - BLINK_DELAY_MS = 1000
 - MAX_RETRY = 5
-- MAX_LINE_LENGTH = 120 (max bytes for HTTP POST payload string in `message_t`)
+- MAX_LINE_LENGTH = 256 (max bytes for HTTP POST payload string in `httpMsg_t`)
 - WORDS_PER_BYTE = 4 (stack high-water mark word → byte conversion factor)
 - LED_BUILTIN = 2 (GPIO pin for heartbeat LED)
 
@@ -40,7 +41,7 @@ Current constants:
 - function pointer for socket operation
 - target IP string
 - command string
-- source sensor label string
+- source location string
 
 Current function pointer signature:
 - `int (*fun_ptr)(char *, char *)`
@@ -53,7 +54,7 @@ The queued recovery callback currently points to the 2-argument `socketClient` o
 - key for delete/recovery actions
 
 Note:
-The struct still contains a `device[10]` field in code, but `setupHTTP_request()` currently only fills `line` and `key`.
+The queue payload type in code is `httpMsg_t`. It still contains a `device[10]` field, but `setupHTTP_request()` currently only fills `line` and `key`.
 
 ## Tasks
 
@@ -85,16 +86,17 @@ Return behavior:
 ### taskSQL_HTTP(...)
 Consumer loop for HTTP queue:
 1. receives queued message
-2. sends POST to post-esp-data.php
-3. on HTTP 200, increments the task-local `passPost` counter, then verifies row consistency using `parse.php?key=<passPost>`
-4. `validateLastInsertRow()` parses the `pid|key,...` response and currently returns success even when the payload is malformed or `pid != key`; on mismatch it logs details and disables the watchdog timer before returning
-5. on non-200 POST, attempts `delete.php?key=<message.key>` with retry limit and requeues the same message
+2. sends POST to `post-esp-data.php`
+3. on HTTP 200, increments task-local `passPost`, reads response body, and compares `passPost` vs returned integer payload
+4. if `passPost != payload.toInt()`, logs mismatch and calls `disableTimer()`
+5. on non-200 POST, logs failure, calls `disableTimer()`, and immediately continues loop
 
 Additional behavior:
 - Uses xMutex_http around HTTP transaction work.
-- Tracks `passPost` and `recovered` counters locally in task context.
-- The code does not currently call `http.end()` on the non-200 path; the success path ends the request before validation.
-- Uses `delete.php?key=<id>` as the row cleanup endpoint on POST failure.
+- Tracks `passPost` and `recovered` counters locally in task context (`recovered` is currently not incremented on active path).
+- `http.end()` is called on the success path.
+- Current non-200 path contains an early `continue`, so cleanup/requeue code below it is unreachable.
+- Because of that early `continue`, mutex release for that iteration is also skipped (important runtime caveat).
 
 ### taskSocketRecov(...)
 Consumes queued socket failures and retries command transmission.
@@ -118,14 +120,15 @@ Payload format:
 - value2=<tokens[2]>
 - value3=<tokens[3]>
 - value4=<passSocket>
-- value5=0
+- value5=<tokens[4]>
 
 Queue behavior:
 - Enqueues only when queue exists and has free space.
-- If HTTP queue is full, logs an error and drops the message (no reset/retry at enqueue site).
+- Uses `xQueueSend(..., 0)` (non-blocking); if full, logs an error and drops the message (no reset/retry at enqueue site).
 
 Additional behavior:
 - The queued message key is set from `passSocket`.
+- Oversized payloads (`length >= MAX_LINE_LENGTH`) log an error and call `disableTimer()`.
 
 ### queStat()
 Utility to inspect queue state and gate restart behavior when work is still pending.
@@ -136,17 +139,22 @@ Notes:
 - This function releases both mutexes before returning.
 
 ## Network Endpoints Used
-Hardcoded local endpoints are used for row delete/recovery and post actions, including:
-- post-esp-data.php
-- parse.php?key=<rowKey>
-- delete.php?key=<rowKey>
-- deleteMAC.php?key=<macAddress>
+Current RTOS paths use:
+- post-esp-data.php (active POST in `taskSQL_HTTP`)
+- deleteMAC.php?key=<macAddress> (active when socket queue overflows in `socketRecovery`)
+
+Also present in helper code (currently not on active task path):
+- parse.php?key=<rowKey> (used by `validateLastInsertRow()`)
+- delete.php?key=<rowKey> (in unreachable branch below early `continue` in `taskSQL_HTTP`)
 
 ## Operational Notes
 - Queue backpressure is intentionally small; overflow triggers cleanup strategy.
 - Mutex use protects shared HTTP/socket sections while tasks run concurrently.
 - This design helps keep the main loop responsive while handling transient network failures.
 - If `QueSocket_Handle` is full, `socketRecovery()` clears stale entries with `xQueueReset()` after optional MAC cleanup.
+- `taskSocketRecov` annotates recovered token rows with retry count via `setTokens(retryPerIO)` before forwarding to `processSensorData()`.
+- `setupHTTP_request()` stores retry count in payload field `value5`.
+- Current `taskSQL_HTTP` non-200 branch has an early `continue`; monitor this path carefully since it bypasses cleanup logic and mutex release.
 
 ## Unit Test Coverage
 Current unit tests for parse/compare behavior live in [test/test_http_parse/test_main.cpp](test/test_http_parse/test_main.cpp).
