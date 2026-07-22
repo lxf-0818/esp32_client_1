@@ -64,7 +64,7 @@
 // Constants
 // #define DEBUG
 #define SOCKET_QUEUE_SIZE 2
-#define HTTP_QUEUE_SIZE 5
+#define HTTP_QUEUE_SIZE 10
 #define TASK_STACK_SIZE 2048
 #define SOCKET_DELAY_MS 50
 #define HTTP_DELAY_MS 100
@@ -320,6 +320,15 @@ void taskSQL_HTTP(void *pvParameters)
                 http.begin(client_sql, serverName.c_str());
                 http.addHeader("Content-Type", "application/x-www-form-urlencoded");
                 int httpResponseCode = http.POST(message.line);
+#define xxx_
+#ifdef xxx
+
+                if (passPost == 5)
+                {
+                    httpResponseCode = -11;
+                }
+#endif
+
                 if (httpResponseCode == 200)
                 {
                     vTaskDelay(xDelay);
@@ -327,37 +336,37 @@ void taskSQL_HTTP(void *pvParameters)
                     String msg = message.line;
                     String payload = http.getString();
                     http.end();
-
-                    if (passPost != payload.toInt())
-                    {
-                        Serial.printf("passPost %d payload %s\n", passPost, payload.c_str());
-                        disableTimer();
-                    }
+                    validateLastInsertRow(passPost, msg.c_str());
                 }
                 else
                 {
-                    Serial.printf("last insert failed %d\n", httpResponseCode);
                     disableTimer();
-                    continue;  // 
+                    Serial.printf("last insert failed %d\n", httpResponseCode);
                     String phpScript = "delete.php?key=" + (String)message.key;
+                    performHttpGet(phpScript.c_str());
+
                     Serial.printf("php Script %s\n", phpScript.c_str());
                     // failPost++;
 
                     int j = 0, rc = 0;
-                    while (1)
-                    {
-                        vTaskDelay(xDelay);
-                        rc = deleteRow(phpScript);
-                        if (rc || j++ == MAX_RETRY)
-                            break; //
-                    }
+                    // while (1)
+                    // {
+                    vTaskDelay(xDelay);
+                    rc = deleteRow(phpScript);
+                    //     if (rc || j++ == MAX_RETRY)
+                    //         break; //
+                    // }
                     Serial.printf("rc %d\n", rc);
                     Serial.printf("HTTP Error rc: %d %s %d \n", httpResponseCode, message.line, message.key);
                     //  Serial.printf("passed %d  failed %d ", passSocket failPost);
                     int ret = xQueueSend(QueHTTP_Handle, (void *)&message, 0); // send message back to queue
                     if (ret == pdTRUE)
-                        recovered++;                            //
+                    {
+                        recovered++;
+                        passPost++;
+                    } //
                     Serial.printf("recoverd %d \n", recovered); // checked mySQL and the entry exists
+                    http.end();
                 }
                 //  http.end();
                 vTaskDelay(xDelay);
@@ -509,6 +518,11 @@ void setupHTTP_request(const String &sensorName, const String &sensorLocation, f
         else if (ret == errQUEUE_FULL)
             Serial.println(".......unable to send data to htpp Queue it's Full");
     }
+    else
+    {
+        if (QueHTTP_Handle != NULL)
+            Serial.printf("setupHTTP failed size  %d\n", uxQueueSpacesAvailable(QueHTTP_Handle));
+    }
 }
 /**
  * @brief Task function to blink an LED at a specified interval.
@@ -616,8 +630,8 @@ int validateLastInsertRow(const int row, const String &msg)
     float tokens[5];
 
     //  test case
-    if (pid == "5")
-        key = "0";
+    // if (pid == "5")
+    //     key = "0";
 
     if (pid == key)
         return 0;

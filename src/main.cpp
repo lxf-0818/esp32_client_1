@@ -93,11 +93,13 @@ void refreshWidgets();
 void resetStats();
 void getBootTime(char *lastBook, char *strReason);
 int getSensorData(const String &sensorsConnected);
+int getSensorData_old(const String &sensorsConnected);
 int getSensorData_new();
+void dumpMAC();
 int createMap();
-void getSensorData4User(const String &input, const String &ip,const String &room);
+void getSensorData4User(const String &input, const String &ip, const String &room);
 int socketRecovery(char *IP, char *cmd2Send, char *MAC);
-void processSensorData(float tokens[DEVICES][5], const String &sesnor);
+void processSensorData(float tokens[DEVICES][5], const String &location);
 String performHttpGet(const char *url);
 int decryptWifiCredentials(char *auth, char *ssid, char *psw);
 int socketClient(char *espServer, char *command);
@@ -214,7 +216,7 @@ void setup()
   lwdtFeed();
   lwdTicker.attach_ms(LWD_TIMEOUT, lwdtcb); // attach lwdt callback routine to Ticker object
   initRTOS();
-  // refreshWidgets();
+  refreshWidgets();
   int cnt = createMap();
   Serial.printf("Sensors: %d\n", cnt);
 
@@ -309,7 +311,7 @@ void refreshWidgets() // called every x seconds by SimpleTimer
     return;
   }
 
-  int sensorCnt = getSensorData(sensorsConnected);
+  int sensorCnt = getSensorData_old(sensorsConnected);
   if (!sensorCnt)
   {
     sprintf(tmp, "No sensors connected to network\n");
@@ -384,7 +386,7 @@ BLYNK_CONNECTED()
   Blynk.virtualWrite(VRETRY, 0); //   "   retry
   Blynk.virtualWrite(V39, "boot");
   String payload;
- #define TEST_
+#define TEST_
 #ifdef TEST
   payload = performHttpGet(deleteAll);
   Serial.println("WARNING TRUNCATE DB");
@@ -560,7 +562,6 @@ String performHttpGet(const char *phpScript)
   if (httpResponseCode != 200)
   {
     Serial.printf("HTTP GET failed %s with code: %d\n", url.c_str(), httpResponseCode);
-    payload = ""; // Return an empty string on failure
   }
   else
     payload = http.getString();
@@ -595,11 +596,10 @@ String performHttpGet(const char *phpScript)
  * @return int Row count parsed from the payload header.
  */
 
-int getSensorData(const String &sensorsConnected)
+int getSensorData_old(const String &sensorsConnected)
 {
   int z = 0, cnt = 0;
   String name;
-
   // Header before first '|' is row count sent by the backend.
   String rows = sensorsConnected.substring(0, sensorsConnected.indexOf("|"));
   int numberOfRows = atoi(rows.c_str());
@@ -736,7 +736,7 @@ int getSensorData_new()
     }
     else
     {
-      processSensorData(tokens, sensorName.c_str());
+      processSensorData(tokens, location.c_str());
     }
   }
   return sensorCnt;
@@ -819,6 +819,7 @@ int createMap()
     }
   } // end for
   // Build IP-indexed map to collapse multi-sensor devices into one reachable node entry.
+  ipMap.clear();
   for (const auto &pair : netMap)
   {
     // Serial.printf("create map %s\n", pair.first.c_str());
@@ -937,6 +938,7 @@ BLYNK_WRITE(V49)
       "ip",
       "enable",
       "disable",
+      "mac",
       "all",
   };
 
@@ -983,9 +985,12 @@ BLYNK_WRITE(V49)
     disableTimer();
     break;
   case 10:
+    dumpMAC();
+    break;
+  case 11:
     timer.disable(timerID1); // pause periodic refresh to prevent socket contention during user input
     for (const auto &pair : netMap)
-      getSensorData4User(pair.first.c_str(), pair.second.ipAddress.c_str(),pair.second.location.c_str());
+      getSensorData4User(pair.first.c_str(), pair.second.ipAddress.c_str(), pair.second.location.c_str());
     timer.enable(timerID1);
     break;
   }
@@ -1005,16 +1010,18 @@ void dumpIP()
   char tmp[100];
   for (const auto &pair : ipMap)
   {
-    if (pair.second.location == "unknown")
-    {
-      sprintf(tmp, "loc %s Main Room", pair.second.macAddress.c_str());
-      Blynk.virtualWrite(V52, tmp);
-    }
-    else
-    {
-      sprintf(tmp, "%12s\t %s\n", pair.second.ipAddress.c_str(), pair.second.location.c_str());
-      Blynk.virtualWrite(V49, tmp);
-    }
+
+    sprintf(tmp, "%12s\t %s\n", pair.second.ipAddress.c_str(), pair.second.location.c_str());
+    Blynk.virtualWrite(V49, tmp);
+  }
+}
+void dumpMAC()
+{
+  char tmp[100];
+  for (const auto &pair : ipMap)
+  {
+    sprintf(tmp, "%12s\t %s\n", pair.second.macAddress.c_str(), pair.second.location.c_str());
+    Blynk.virtualWrite(V49, tmp);
   }
 }
 
@@ -1147,7 +1154,7 @@ bool checkSSD()
 //   return returnIPstring;
 // }
 
-void getSensorData4User(const String &userInput, const String &ip,const String &room)
+void getSensorData4User(const String &userInput, const String &ip, const String &room)
 {
   // Map 3-letter sensor prefixes to their device ID codes (used in tokens[i][0]).
   static const std::map<String, int> tagMap =
@@ -1203,7 +1210,7 @@ void getSensorData4User(const String &userInput, const String &ip,const String &
     {
       deviceFound = true;
       // Resolve the target MAC to a human-readable room/location label.
-      //String room = mac2room(sensor.c_str());
+      // String room = mac2room(sensor.c_str());
       sprintf(tmp, "%s %.1f %s %.1f %s %s \n",
               label.c_str(), tokens[i][1], postFix.c_str(), tokens[i][2], postFix2.c_str(), room.c_str());
       Blynk.virtualWrite(V49, tmp);
@@ -1373,6 +1380,7 @@ void processSensorData(float tokens[][5], const String &location)
       passSocket++;
       // send to freeRTOS queque
       setupHTTP_request(it->second, location, tokens[i]);
+
       //   upDateWidget(it->second, tokens[i]);
     }
     else
@@ -1447,7 +1455,7 @@ String ip2mac(const String &ip)
   {
     if (pair.second.ipAddress == ip.c_str())
     {
-     // Serial.printf("mac @ %s\n", pair.second.macAddress.c_str());
+      // Serial.printf("mac @ %s\n", pair.second.macAddress.c_str());
       return pair.second.macAddress.c_str();
     }
   }
