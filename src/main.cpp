@@ -318,6 +318,10 @@ void refreshWidgets() // called every x seconds by SimpleTimer
     Blynk.virtualWrite(V39, tmp);
     return;
   }
+#define DEBUG
+#ifdef DEBUG
+  Serial.println();
+#endif
   Blynk.virtualWrite(V51, sensorCnt);
   Blynk.virtualWrite(V7, passSocket);
   Blynk.virtualWrite(V20, failSocket);
@@ -386,6 +390,7 @@ BLYNK_CONNECTED()
   Blynk.virtualWrite(VRETRY, 0); //   "   retry
   Blynk.virtualWrite(V39, "boot");
   String payload;
+
 #define TEST_
 #ifdef TEST
   payload = performHttpGet(deleteAll);
@@ -955,8 +960,7 @@ BLYNK_WRITE(V49)
     displayValidCmdList(validCommand, numberOfElements);
     break;
   case 1:
-    if (queStat())
-      Blynk.virtualWrite(V49, "all tasks complete\n");
+    queStat();
     ESP.restart();
     break;
   case 2:
@@ -973,7 +977,9 @@ BLYNK_WRITE(V49)
     refreshWidgets();
     break;
   case 6:
+    disableTimer();
     dumpI2C();
+    enableTimer();
     break;
   case 7:
     dumpIP();
@@ -989,6 +995,7 @@ BLYNK_WRITE(V49)
     break;
   case 11:
     timer.disable(timerID1); // pause periodic refresh to prevent socket contention during user input
+    queStat(); // All tasks complete?
     for (const auto &pair : netMap)
       getSensorData4User(pair.first.c_str(), pair.second.ipAddress.c_str(), pair.second.location.c_str());
     timer.enable(timerID1);
@@ -1206,7 +1213,7 @@ void getSensorData4User(const String &userInput, const String &ip, const String 
   bool deviceFound = false;
   for (int i = 0; i < 5; i++)
   {
-    if (device == tokens[i][0])
+    if (device == static_cast<int> (tokens[i][0]))
     {
       deviceFound = true;
       // Resolve the target MAC to a human-readable room/location label.
@@ -1366,7 +1373,7 @@ void processSensorData(float tokens[][5], const String &location)
           {58, "BMP280"},
           {44, "SHT35"},
           {48, "ADS1115"},
-          {40, "INA219 "},
+          {40, "INA219"},
           {28, "DS1"}};
 
   for (int i = 0; i < 5; i++)
@@ -1385,7 +1392,7 @@ void processSensorData(float tokens[][5], const String &location)
     }
     else
     {
-      Serial.printf("unknow code %d\n", sensorCode);
+      Serial.printf("unknown code %d\n", sensorCode);
       continue; // Unknown sensor code
     }
   }

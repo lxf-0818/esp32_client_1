@@ -64,10 +64,10 @@
 // Constants
 // #define DEBUG
 #define SOCKET_QUEUE_SIZE 2
-#define HTTP_QUEUE_SIZE 10
+#define HTTP_QUEUE_SIZE DEVICES
 #define TASK_STACK_SIZE 2048
 #define SOCKET_DELAY_MS 50
-#define HTTP_DELAY_MS 100
+#define HTTP_DELAY_MS 5
 #define BLINK_DELAY_MS 1000
 #define INPUT_BUFFER_LIMIT 2048
 #define MAX_LINE_LENGTH 256
@@ -320,18 +320,8 @@ void taskSQL_HTTP(void *pvParameters)
                 http.begin(client_sql, serverName.c_str());
                 http.addHeader("Content-Type", "application/x-www-form-urlencoded");
                 int httpResponseCode = http.POST(message.line);
-#define xxx_
-#ifdef xxx
-
-                if (passPost == 5)
-                {
-                    httpResponseCode = -11;
-                }
-#endif
-
                 if (httpResponseCode == 200)
                 {
-                    vTaskDelay(xDelay);
                     passPost++;
                     String msg = message.line;
                     String payload = http.getString();
@@ -340,22 +330,19 @@ void taskSQL_HTTP(void *pvParameters)
                 }
                 else
                 {
-                    disableTimer();
                     Serial.printf("last insert failed %d\n", httpResponseCode);
+
+                    // once tested remove the following lines
+                    http.end();
+                    disableTimer();
+                    continue;
+                    //
+
                     String phpScript = "delete.php?key=" + (String)message.key;
                     performHttpGet(phpScript.c_str());
-
                     Serial.printf("php Script %s\n", phpScript.c_str());
                     // failPost++;
-
-                    int j = 0, rc = 0;
-                    // while (1)
-                    // {
-                    vTaskDelay(xDelay);
-                    rc = deleteRow(phpScript);
-                    //     if (rc || j++ == MAX_RETRY)
-                    //         break; //
-                    // }
+                    int rc = deleteRow(phpScript);
                     Serial.printf("rc %d\n", rc);
                     Serial.printf("HTTP Error rc: %d %s %d \n", httpResponseCode, message.line, message.key);
                     //  Serial.printf("passed %d  failed %d ", passSocket failPost);
@@ -484,7 +471,11 @@ void setupHTTP_request(const String &sensorName, const String &sensorLocation, f
 {
     httpMsg_t message;
     int retryCnt = tokens[4];
-
+#define DEBUG
+#ifdef DEBUG
+    int waitingTask = uxQueueMessagesWaiting(QueHTTP_Handle);
+    Serial.printf("msg waiting %i ", waitingTask);
+#endif
     if (QueHTTP_Handle != NULL && uxQueueSpacesAvailable(QueHTTP_Handle) > 0)
     {
         String httpRequestData = "api_key=" + phpKey;
@@ -495,11 +486,7 @@ void setupHTTP_request(const String &sensorName, const String &sensorLocation, f
         httpRequestData += "&value3=" + String(tokens[3]);
         httpRequestData += "&value4=" + String(passSocket);
         httpRequestData += "&value5=" + String(retryCnt);
-#define DEBUG_
-#ifdef DEBUG
-        Serial.printf("http req data %s passSocket %d\n", httpRequestData.c_str(), passSocket);
-        Serial.flush();
-#endif
+
         if (httpRequestData.length() >= sizeof(message.line))
         {
             Serial.printf("setupHTTP_request: payload too long (%u >= %u)\n",
@@ -507,23 +494,34 @@ void setupHTTP_request(const String &sensorName, const String &sensorLocation, f
             disableTimer();
             return;
         }
+#ifdef DEBUG
+        Serial.printf("http data %s\n", httpRequestData.c_str());
+#endif
+
         httpRequestData.toCharArray(message.line, sizeof(message.line)); // bounded + null-terminated
         message.key = passSocket;
         // message.line[strlen(message.line)] = 0; // Add the terminating null
         int ret = xQueueSend(QueHTTP_Handle, (void *)&message, 0);
+
         if (ret == pdTRUE)
         {
+
             /*  Serial.println(" msg struct send to QueSocket sucessfully"); */
         }
+
         else if (ret == errQUEUE_FULL)
             Serial.println(".......unable to send data to htpp Queue it's Full");
     }
     else
     {
         if (QueHTTP_Handle != NULL)
+        {
             Serial.printf("setupHTTP failed size  %d\n", uxQueueSpacesAvailable(QueHTTP_Handle));
+            disableTimer();
+        }
     }
 }
+
 /**
  * @brief Task function to blink an LED at a specified interval.
  *

@@ -115,7 +115,7 @@ int socketClient(char *espServer, char *command)
     while (client.available())
         str[index++] = client.read(); // read sensor data from sever
     client.stop();
-// #define TRACE
+ #define TRACE_
 #ifdef TRACE
     Serial.printf("conected to %s received %s\n", espServer, str);
 #endif
