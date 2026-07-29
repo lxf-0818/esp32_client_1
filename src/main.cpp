@@ -81,6 +81,7 @@
 #define SCREEN_HEIGHT 64 // OLED display height, in pixels
 #define BLYNK_PRINT Serial
 #define DEVICES 8
+#define DEBUG
 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 #define SSD_ADDR 0x3c
@@ -124,6 +125,7 @@ void updateBlynk();
 String ip2mac(const String &ip);
 void enableTimer();
 void disableTimer();
+int queHealth();
 
 /**
  * @brief Network metadata for one sensor entry.
@@ -150,7 +152,6 @@ String menuList[] = {"Main Room", "ADC Guest Room", "Mud Room", "Master Bedroom"
 const uint16_t port = 8888;
 String sensorName = "NO DEVICE";
 int failSocket, passSocket, recoveredSocket, retry, timerID1, passPost;
-String sensorsConnected;
 HTTPClient http;
 String lastMsg;
 char lastBoot[20], strReason[60];
@@ -159,6 +160,7 @@ float tokens[DEVICES][5];
 bool setAlarm = false;
 Ticker lwdTicker;
 String lastSensorsConnected = "";
+String lastStateTimer = "enable";
 String phpServerIP;
 // bool stop = false;
 #define LWD_TIMEOUT 15 * 1000 // Reboot if loop watchdog timer reaches this time out value
@@ -213,6 +215,7 @@ void setup()
 
   // Serial.println("Turned off timer in setup()");
   timerID1 = timer.setInterval(1000L * 5, refreshWidgets); //
+  lastStateTimer = "enable";
   lwdtFeed();
   lwdTicker.attach_ms(LWD_TIMEOUT, lwdtcb); // attach lwdt callback routine to Ticker object
   initRTOS();
@@ -295,22 +298,19 @@ void refreshWidgets() // called every x seconds by SimpleTimer
 {
   String location;
   char tmp[256];
-  // esp32 still blinking and can ping but blynk app is offline hopefully this works?
-  bool isconnected = Blynk.connected();
-  if (isconnected == false)
-  {
-    Serial.println("Blynk Not Connected");
-    ESP.restart();
-  }
+  
+  queHealth();
+#ifdef DEBUG
+  Serial.println();
+#endif
+
   String sensorsConnected = performHttpGet(ipMacList);
-  // Serial.printf("sensorsConnected %s\n", sensorsConnected.c_str());
   if (sensorsConnected.isEmpty())
   {
     sprintf(tmp, "Failed to fetch sensors from mySQL ");
     Blynk.virtualWrite(V39, tmp);
     return;
   }
-
   int sensorCnt = getSensorData_old(sensorsConnected);
   if (!sensorCnt)
   {
@@ -318,10 +318,6 @@ void refreshWidgets() // called every x seconds by SimpleTimer
     Blynk.virtualWrite(V39, tmp);
     return;
   }
-#define DEBUG
-#ifdef DEBUG
-  Serial.println();
-#endif
   Blynk.virtualWrite(V51, sensorCnt);
   Blynk.virtualWrite(V7, passSocket);
   Blynk.virtualWrite(V20, failSocket);
@@ -332,7 +328,7 @@ void refreshWidgets() // called every x seconds by SimpleTimer
   if (lastSensorsConnected != sensorsConnected) // only update Blynk terminal when IP list changes
   {
     lastSensorsConnected = sensorsConnected;
-    Blynk.virtualWrite(V46, "\nStart:\n");
+    Blynk.virtualWrite(V49, "\nStart:\n");
     for (const auto &pair : netMap)
     {
       location = pair.second.location.c_str();
@@ -567,6 +563,12 @@ String performHttpGet(const char *phpScript)
   if (httpResponseCode != 200)
   {
     Serial.printf("HTTP GET failed %s with code: %d\n", url.c_str(), httpResponseCode);
+    if (httpResponseCode < 0)
+    {
+      Blynk.virtualWrite(V47, "HTTP rc <0");
+      queStat();
+      ESP.restart();
+    }
   }
   else
     payload = http.getString();
@@ -941,9 +943,10 @@ BLYNK_WRITE(V49)
       "refr",
       "i2c",
       "ip",
+      "mac",
       "enable",
       "disable",
-      "mac",
+      "forceEnable",
       "all",
   };
 
@@ -985,17 +988,22 @@ BLYNK_WRITE(V49)
     dumpIP();
     break;
   case 8:
-    enableTimer();
-    break;
-  case 9:
-    disableTimer();
-    break;
-  case 10:
     dumpMAC();
     break;
+  case 9:
+    enableTimer();
+    break;
+  case 10:
+    disableTimer();
+    lastStateTimer = "disable";
+    break;
   case 11:
+    lastStateTimer = "enable";
+    enableTimer();
+    break;
+  case 12:
     timer.disable(timerID1); // pause periodic refresh to prevent socket contention during user input
-    queStat(); // All tasks complete?
+    queStat();               // All tasks complete?
     for (const auto &pair : netMap)
       getSensorData4User(pair.first.c_str(), pair.second.ipAddress.c_str(), pair.second.location.c_str());
     timer.enable(timerID1);
@@ -1213,7 +1221,7 @@ void getSensorData4User(const String &userInput, const String &ip, const String 
   bool deviceFound = false;
   for (int i = 0; i < 5; i++)
   {
-    if (device == static_cast<int> (tokens[i][0]))
+    if (device == static_cast<int>(tokens[i][0]))
     {
       deviceFound = true;
       // Resolve the target MAC to a human-readable room/location label.
@@ -1475,6 +1483,11 @@ void disableTimer()
 }
 void enableTimer()
 {
+  if (lastStateTimer == "disable")
+  {
+    Serial.println("timer enable bypassed");
+    return;
+  }
   Serial.println("timer enable");
   timer.enable(timerID1);
 }

@@ -62,7 +62,7 @@
 #include <LittleFS.h>
 
 // Constants
-// #define DEBUG
+#define DEBUG
 #define SOCKET_QUEUE_SIZE 2
 #define HTTP_QUEUE_SIZE DEVICES
 #define TASK_STACK_SIZE 2048
@@ -106,6 +106,7 @@ void disableTimer();
 int validateLastInsertRow(const int row, const String &msg);
 String find(String msg, String toFind);
 void setTokens(int failCnt);
+void queHealth();
 
 // Struct Definitions
 /**
@@ -183,7 +184,10 @@ httpMsg_t message;
  */
 void initRTOS()
 {
-    uint32_t socket_delay = SOCKET_DELAY_MS, http_delay = HTTP_DELAY_MS, blink_delay = BLINK_DELAY_MS;
+    uint32_t socket_delay = SOCKET_DELAY_MS;
+    uint32_t http_delay = HTTP_DELAY_MS;
+    uint32_t blink_delay = BLINK_DELAY_MS;
+
     pinMode(LED_BUILTIN, OUTPUT);
 
     QueSocket_Handle = xQueueCreate(SOCKET_QUEUE_SIZE, sizeof(socket_t));
@@ -331,7 +335,7 @@ void taskSQL_HTTP(void *pvParameters)
                 else
                 {
                     Serial.printf("last insert failed %d\n", httpResponseCode);
-
+                    passSocket--;
                     // once tested remove the following lines
                     http.end();
                     disableTimer();
@@ -471,11 +475,7 @@ void setupHTTP_request(const String &sensorName, const String &sensorLocation, f
 {
     httpMsg_t message;
     int retryCnt = tokens[4];
-#define DEBUG
-#ifdef DEBUG
-    int waitingTask = uxQueueMessagesWaiting(QueHTTP_Handle);
-    Serial.printf("msg waiting %i ", waitingTask);
-#endif
+
     if (QueHTTP_Handle != NULL && uxQueueSpacesAvailable(QueHTTP_Handle) > 0)
     {
         String httpRequestData = "api_key=" + phpKey;
@@ -495,7 +495,7 @@ void setupHTTP_request(const String &sensorName, const String &sensorLocation, f
             return;
         }
 #ifdef DEBUG
-        Serial.printf("http data %s\n", httpRequestData.c_str());
+        Serial.printf("pid %d waiting %d http %s\n", passSocket, uxQueueMessagesWaiting(QueHTTP_Handle), httpRequestData.c_str());
 #endif
 
         httpRequestData.toCharArray(message.line, sizeof(message.line)); // bounded + null-terminated
@@ -724,5 +724,16 @@ void setTokens(int failCnt)
             break;
 
         tokens[i][4] = failCnt;
+    }
+}
+//
+void queHealth()
+{
+    int cnt = uxQueueMessagesWaiting(QueHTTP_Handle);
+    if (cnt)
+    {
+        Serial.printf(" wtf %d\n", cnt);
+        queStat();
+        ESP.restart();
     }
 }
