@@ -1,23 +1,23 @@
 # freeRtos.cpp
 
-Last updated: 2026-07-29
+Last updated: 2026-07-31
 
 ## Purpose
-Runs background tasks for queue-driven socket recovery and HTTP POST handling so the main Blynk loop stays responsive.
+Runs background tasks for queue-driven socket recovery and HTTP POST handling so the main Blynk loop stays responsive. The module also includes a queue-health monitor that can escalate persistent backlog conditions into a reboot or timer shutdown.
 
 ## Core objects
-- QueSocket_Handle: queue for failed socket operations.
-- QueHTTP_Handle: queue for HTTP POST messages.
-- xMutex_sock: mutex protecting socket-related work.
-- xMutex_http: mutex protecting HTTP-related work.
-- phpKey: API key string consumed by the HTTP POST payload.
-- phpServerIP: base URL prefix used by the HTTP task.
+- QueSocket_Handle: queue for failed socket operations
+- QueHTTP_Handle: queue for HTTP POST messages
+- xMutex_sock: mutex protecting socket-related work
+- xMutex_http: mutex protecting HTTP-related work
+- phpKey: API key string consumed by the HTTP POST payload
+- phpServerIP: base URL prefix used by the HTTP task
 
 ## Task topology
 initRTOS() creates three pinned tasks:
-- taskBlink (core 0, priority 1): toggles the built-in LED.
-- taskSQL_HTTP (core 0, priority 2): sends queued sensor data to post-esp-data.php and validates insert bookkeeping.
-- taskSocketRecov (core 1, priority 3): retries failed socket operations.
+- taskBlink (core 0, priority 1): toggles the built-in LED
+- taskSQL_HTTP (core 0, priority 2): sends queued sensor data to post-esp-data.php and validates insert bookkeeping
+- taskSocketRecov (core 1, priority 3): retries failed socket operations
 
 ## Current constants
 - SOCKET_QUEUE_SIZE = 2
@@ -37,8 +37,6 @@ initRTOS() creates three pinned tasks:
 - target IP string
 - command string
 - location/context string
-
-The recovery queue currently targets the two-argument socketClient() overload.
 
 ### httpMsg_t
 - device name field
@@ -74,10 +72,13 @@ The function uses a non-blocking queue send and drops the message if the queue i
 ### queStat()
 Waits for both queues to drain and then takes the mutexes before returning. This is used by the watchdog and terminal reboot path.
 
+### queHealth()
+Checks the queued HTTP backlog and, when messages are pending, reports the backlog size, available queue slots, and current pass counter. If queStat() reports that the queue state is still unhealthy, the function restarts the ESP32; otherwise it disables the periodic timer to stop further work in a degraded state.
+
 ## Operational notes
 - The queue backpressure is intentionally small, so overflow triggers cleanup instead of indefinite backlog growth.
 - The code uses mutexes to protect socket and HTTP work while the FreeRTOS tasks run concurrently.
-- validateLastInsertRow() currently logs a mismatch and disables the timer, but the older retry/requeue branch remains effectively unreachable because the non-200 POST path continues early.
+- validateLastInsertRow() currently logs mismatches and disables the timer if the backend validation fails.
 - The current active flow uses the queue-based HTTP path from processSensorData() rather than a direct synchronous POST from the main loop.
 
 ## Unit test coverage

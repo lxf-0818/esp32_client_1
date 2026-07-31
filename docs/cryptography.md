@@ -1,110 +1,77 @@
-# cryptography.cpp
+﻿# cryptography.cpp
 
-Last updated: 2026-07-14
+Last updated: 2026-07-31
 
 ## Purpose
-Provides AES-128-CBC encrypt/decrypt helpers and LittleFS I/O utilities used
-across the ESP32 client firmware:
-- initialise AES library (padding mode)
+Provides AES-128-CBC encrypt/decrypt helpers and LittleFS I/O utilities used across the ESP32 client firmware:
+- initialize the AES library in zero-padding mode
 - encrypt plaintext to base64-encoded ciphertext
 - decrypt base64-encoded ciphertext to plaintext
-- read and parse comma-separated hex key/IV files from LittleFS (master key/IV are loaded once, then copied into scratch buffers per AES operation)
-- mount LittleFS, decrypt stored Wi-Fi credentials, retrieve the Blynk auth token, and load backend base URL
+- read comma-separated hex key/IV files from LittleFS
+- mount LittleFS, decrypt stored Wi-Fi credentials, retrieve the Blynk auth token, and load the backend base URL
 
-## Global Buffers
+## Global buffers
 
 | Symbol | Size | Role |
 |---|---|---|
-| `aes_key[N_BLOCK]` | 16 bytes | Active AES-128 key loaded from `/aes.txt` |
-| `aes_key_copy[N_BLOCK]` | 16 bytes | Scratch key buffer declared for AES operations |
-| `aes_iv[N_BLOCK]` | 16 bytes | Active AES IV loaded from `/iv.txt` |
-| `enc_iv_copy[N_BLOCK]` | 16 bytes | Scratch IV used for both encrypt and decrypt (copy of `aes_iv`, mutated by AESLib) |
-| `cleartext[]` | 2048 bytes | Plaintext workspace |
-| `ciphertext[]` | 4096 bytes | Base64-encoded ciphertext output workspace |
-| `phpKey` | `String` | PHP API key read from `/api.txt` |
-| `phpServerIP` | `String` | Backend base URL read from `/phpServerIP.txt` |
+| aes_key[N_BLOCK] | 16 bytes | Active AES-128 key loaded from /aes.txt |
+| aes_key_copy[N_BLOCK] | 16 bytes | Scratch key buffer retained for AES operations |
+| aes_iv[N_BLOCK] | 16 bytes | Active AES IV loaded from /iv.txt |
+| enc_iv_copy[N_BLOCK] | 16 bytes | Scratch IV used for both encrypt and decrypt |
+| cleartext[] | 2048 bytes | Plaintext workspace |
+| ciphertext[] | 4096 bytes | Base64-encoded ciphertext output workspace |
+| phpKey | String | PHP API key read from /api.txt |
+| phpServerIP | String | Backend base URL prefix read from /phpServerIP.txt |
 
-> AESLib mutates the IV in-place on every call. The `enc_iv_copy`
-> scratch buffer protects the original `aes_iv` by passing a copy to each operation.
+AESLib mutates the IV in-place on every call, so the scratch buffer is copied from aes_iv before each operation.
 
-## Filesystem Inputs
+## Filesystem inputs
 
 | File | Contents |
 |---|---|
-| `/aes.txt` | Comma-separated ASCII hex bytes of the 16-byte AES-128 key (e.g. `a1,b2,c3,...`) |
-| `/iv.txt` | Comma-separated ASCII hex bytes of the 16-byte IV |
-| `/ssid_pass_aes.txt` | AES-CBC-encrypted, base64-encoded `SSID:PASSWORD` blob |
-| `/blynkAuth.txt` | Plaintext Blynk authentication token |
-| `/api.txt` | Plaintext PHP API key (stored in `phpKey`) |
-| `/phpServerIP.txt` | Plaintext backend base URL prefix (stored in `phpServerIP`) |
+| /aes.txt | comma-separated ASCII hex bytes of the 16-byte AES-128 key |
+| /iv.txt | comma-separated ASCII hex bytes of the 16-byte IV |
+| /ssid_pass_aes.txt | AES-CBC-encrypted, base64-encoded SSID:PASSWORD blob |
+| /blynkAuth.txt | plaintext Blynk authentication token |
+| /api.txt | plaintext PHP API key |
+| /phpServerIP.txt | plaintext backend base URL prefix |
 
 ## Key APIs
 
 ### aes_init()
-Sets AESLib padding mode to `0` (zero-padding) . Must be called before any encrypt or decrypt
-operation.
+Sets the AESLib padding mode to zero-padding. This must be called before encrypting or decrypting.
 
 ### encrypt_stub(str, aes_encrypt)
-High-level encrypt entry point.
-1. Copies `aes_iv` → `enc_iv_copy`.
-2. Calls `encrypt_to_ciphertext(str, enc_iv_copy)`.
-3. Copies the result from the global `ciphertext[]` into `aes_encrypt`.
-
-`aes_encrypt` must be at least `2 × INPUT_BUFFER_LIMIT` (4096) bytes.
+High-level encrypt entry point:
+1. copies aes_iv to enc_iv_copy
+2. calls encrypt_to_ciphertext()
+3. copies the resulting ciphertext into aes_encrypt
 
 ### encrypt_to_ciphertext(msg, iv)
-Low-level AES-128-CBC encrypt + base64 encode.
-1. Calls `aeslib.encrypt64()` → result written to global `ciphertext[]`.
-2. Performs a round-trip decrypt to verify correctness (`"match"` logged to Serial on success).
-3. Returns the ciphertext length.
-
-`iv` is consumed (mutated by AESLib); always pass a copy, not `aes_iv` directly.
+Low-level AES-128-CBC encrypt + base64 encode. It calls aeslib.encrypt64(), writes the output to ciphertext[], and performs a round-trip decrypt to verify correctness.
 
 ### decrypt_to_cleartext(msg, msgLen, iv, cleartext)
-AES-128-CBC decrypt + base64 decode.
-- Calls `aeslib.decrypt64()` and null-terminates the result in `cleartext` by
-  replacing the first non-printable ASCII character (value < 32) with `'\0'`.
-- On ESP8266 builds, `ESP.getFreeHeap()` is called as a heap diagnostic
-  (result discarded; guarded by `#ifdef ESP8266`).
-
-`iv` is consumed (mutated); always pass a copy, not `aes_iv` directly.
+AES-128-CBC decrypt + base64 decode. It calls aeslib.decrypt64() and null-terminates the result at the first non-printable character.
 
 ### decryptWifiCredentials(auth, ssid, pass)
-Mounts LittleFS and decrypts stored Wi-Fi credentials and Blynk auth token.
+Mounts LittleFS and decrypts the stored Wi-Fi credentials and Blynk auth token.
 
-1. Mounts LittleFS; calls `ESP.restart()` on failure.
-2. Reads AES key from `/aes.txt` and IV from `/iv.txt` via `readAES()`.
-   NOTE: iv.txt is only used for decrypts  `/ssid_pass_aes.txt`
-3. Reads PHP API key from `/api.txt` into `phpKey` via `readLittle()`.
-4. Reads encrypted credentials from `/ssid_pass_aes.txt` via `readLittle()`.
-5. Reads Blynk token from `/blynkAuth.txt` via `readLittle()`; copies into `auth`.
-6. Reads backend base URL from `/phpServerIP.txt` into global `phpServerIP`.
-7. Copies `aes_iv` → `enc_iv_copy`, calls `decrypt_to_cleartext()`.
-8. Splits the resulting `SSID:PASSWORD` string on `:` and copies into `ssid` / `pass`.
+The function:
+1. mounts LittleFS and restarts on failure
+2. reads aes.txt and iv.txt with readAES()
+3. reads /api.txt into phpKey
+4. reads /ssid_pass_aes.txt and /blynkAuth.txt
+5. reads /phpServerIP.txt into phpServerIP
+6. decrypts the Wi-Fi SSID/password pair into the caller buffers
 
-Return value:
-- `0` — success
-
-Caller is responsible for ensuring `auth`, `ssid`, and `pass` buffers are large
-enough to hold their respective strings.
-
-## LittleFS Helpers
+## LittleFS helpers
 
 ### readAES(fileName, data[])
-Opens a comma-separated ASCII hex file and stores each parsed byte into `data[]`.
-
-Return value:
-- `0` — success
-- `2` — file could not be opened
+Opens a comma-separated ASCII hex file and stores each parsed byte in the supplied byte array.
 
 ### readLittle(fileName)
-Reads the full contents of a LittleFS file and returns them as an Arduino
-`String`. Returns an empty `String` and logs an error to Serial if the file
-cannot be opened.
+Reads the full contents of a LittleFS file into an Arduino String and returns it.
 
-## Compile Flags
-
-- `ESP8266` — enables the `ESP.getFreeHeap()` diagnostic call inside
-  `decrypt_to_cleartext()`.
-- `DEBUG` — enables verbose Serial output in `encrypt_stub()`,
-  `encrypt_to_ciphertext()`, and `decrypt_to_cleartext()`.
+## Compile flags
+- ESP8266: enables the heap diagnostic call inside decrypt_to_cleartext()
+- DEBUG: enables verbose Serial output in the encrypt/decrypt helpers

@@ -578,6 +578,7 @@ bool queStat()
         if (millis() - timeout > 5000)
         {
             Serial.println(">>> Queue Timeout!");
+            ESP.restart();
             return false;
         }
         Serial.println("Queues are busy...");
@@ -726,14 +727,30 @@ void setTokens(int failCnt)
         tokens[i][4] = failCnt;
     }
 }
-//
+
+/**
+ * @brief Checks the HTTP queue health and triggers recovery when backlog is detected.
+ *
+ * Counts queued HTTP POST messages and, if any are pending, reports the backlog
+ * together with the current queue capacity and pass counter. It then runs the
+ * broader queue-status check, restarts the ESP32 if the queues remain unhealthy,
+ * and disables the periodic timer to stop further work in a degraded state.
+  // pid 143024 waiting 6
+  // que busy 1 space open 7 pid 143024
+  // Queues are busy...
+  // Queues are clear...
+  // All tasks complete
+  // timer disable
+  // pid 143025 waiting 0
+ */
 void queHealth()
 {
     int cnt = uxQueueMessagesWaiting(QueHTTP_Handle);
     if (cnt)
     {
-        Serial.printf(" wtf %d\n", cnt);
-        queStat();
-        ESP.restart();
+        Serial.printf("que busy %d space open %d pid %d \n", cnt, uxQueueSpacesAvailable(QueHTTP_Handle), passSocket);
+        if (!queStat())
+            ESP.restart();
+        // disableTimer();
     }
 }

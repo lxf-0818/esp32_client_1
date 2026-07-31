@@ -1,49 +1,50 @@
 # ESP32 Client Documentation
 
-Last updated: 2026-07-29
+Last updated: 2026-07-31
 
 ## Overview
 This project is an ESP32-based IoT client that:
-- decrypts Wi-Fi and Blynk credentials from LittleFS at boot
+- decrypts Wi-Fi credentials and the Blynk auth token from LittleFS at boot
 - connects to Blynk and publishes sensor status to virtual pins
 - fetches a sensor roster from a PHP backend over HTTP
 - polls sensor nodes over TCP sockets and parses their telemetry
 - posts processed sensor values through a FreeRTOS HTTP queue
 - uses a software watchdog to reboot the device if the loop stalls
 
-The active runtime entry point is in src/main.cpp, while background recovery and SQL posting live in src/freeRtos.cpp.
+The active runtime entry point is in [src/main.cpp](../src/main.cpp), while background recovery and SQL posting live in [src/freeRtos.cpp](../src/freeRtos.cpp).
 
 ## Current implementation highlights
-- refreshWidgets() calls performHttpGet(ipMacList), then getSensorData_old() to rebuild the runtime map and poll nodes.
-- createMap() rebuilds both netMap and ipMap from the current roster, and is used during setup and terminal-driven flows.
-- The watchdog timeout is 15000 ms and is reset by lwdtFeed().
+- The main refresh path calls performHttpGet(ipMacList), then getSensorData_old() to rebuild the runtime map and poll nodes.
+- The refresh path also calls queHealth() so persistent backlog conditions are surfaced quickly.
+- createMap() rebuilds both netMap and ipMap from the current roster and is used by the terminal-driven flows and by the new polling path.
+- The watchdog timeout is 15 000 ms and is reset by lwdtFeed().
 - RTOS tasks handle socket recovery and HTTP POST work so the main loop stays responsive.
 
 ## Module docs
-- docs/main.md
-- docs/cryptography.md
-- docs/freeRtos.md
-- docs/socketClient.md
-- docs/rollBack.md
-- docs/misc.md
-- docs/blynk_widget.md
+- [docs/main.md](main.md)
+- [docs/cryptography.md](cryptography.md)
+- [docs/freeRtos.md](freeRtos.md)
+- [docs/socketClient.md](socketClient.md)
+- [docs/rollBack.md](rollBack.md)
+- [docs/misc.md](misc.md)
+- [docs/blynk_widget.md](blynk_widget.md)
 
 ## Project structure
-- src/main.cpp: setup/loop, Blynk handlers, terminal commands, watchdog logic, widget refresh.
-- src/freeRtos.cpp: FreeRTOS task startup, queue consumers, socket recovery, and HTTP POST queueing.
-- src/cryptography.cpp: AES-128-CBC helpers and LittleFS credential decryption.
-- src/socketClient.cpp: socket protocol handling and token parsing.
-- src/misc.cpp: shared helpers and utility functions.
-- src/rollBack.cpp: recovery and queue-side helpers.
-- src/blynk_widget.h: Blynk virtual pin constants and labels.
-- data/: runtime config blobs in LittleFS such as aes.txt, iv.txt, blynkAuth.txt, api.txt, and ssid_pass_aes.txt.
+- [src/main.cpp](../src/main.cpp): setup/loop, Blynk handlers, terminal commands, watchdog logic, widget refresh, and roster parsing.
+- [src/freeRtos.cpp](../src/freeRtos.cpp): FreeRTOS task startup, queue consumers, socket recovery, and HTTP POST queueing.
+- [src/cryptography.cpp](../src/cryptography.cpp): AES-128-CBC helpers and LittleFS credential decryption.
+- [src/socketClient.cpp](../src/socketClient.cpp): socket protocol handling and token parsing.
+- [src/misc.cpp](../src/misc.cpp): shared helpers such as boot-time and reset-reason formatting.
+- [src/rollBack.cpp](../src/rollBack.cpp): recovery and queue-side helpers.
+- [src/blynk_widget.h](../src/blynk_widget.h): Blynk virtual pin constants and labels.
+- [data](../data): runtime config blobs in LittleFS such as aes.txt, iv.txt, blynkAuth.txt, api.txt, phpServerIP.txt, and ssid_pass_aes.txt.
 
 ## Runtime flow
 1. setup() initializes Serial, decrypts Wi-Fi credentials, starts Blynk, checks the OLED, and starts the watchdog ticker.
 2. setup() initializes RTOS support and performs an initial refreshWidgets() pass.
-3. refreshWidgets() fetches the roster from the backend and reuses getSensorData_old() to poll each node.
+3. refreshWidgets() fetches the roster from the backend and uses getSensorData_old() to poll each node.
 4. Successful socket reads are forwarded to processSensorData(), which fans out sensor values to the HTTP queue.
-5. The main loop keeps feeding the watchdog and running Blynk/timer callbacks.
+5. The main loop keeps feeding the watchdog and running Blynk and timer callbacks.
 
 ## Data model summary
 - net_t: one node record with ipAddress, macAddress, and location.
@@ -54,9 +55,9 @@ The active runtime entry point is in src/main.cpp, while background recovery and
 - lastSensorsConnected: cached roster payload used to reduce repeated terminal updates.
 
 ## Blynk integration
-Key handlers in src/main.cpp:
+Key handlers in [src/main.cpp](../src/main.cpp):
 - BLYNK_CONNECTED(): resets counters, loads boot metadata, and initializes the row count from the backend.
-- BLYNK_WRITE(V18): clears backend rows via truncate.php.
+- BLYNK_WRITE(V18): clears backend rows through truncate.php.
 - BLYNK_WRITE(BLINK_TST): sends BLK to the selected sensor group.
 - BLYNK_WRITE(BOOT): sends RST to the selected sensor group.
 - BLYNK_WRITE(V49): dispatches terminal commands.
@@ -83,28 +84,29 @@ The client prepends the host/base URL from phpServerIP to the following scripts:
 - deleteMAC.php
 - post-esp-data.php (used by the RTOS HTTP queue)
 
-The backend base URL is expected to be supplied by data/api.txt at runtime.
+The backend base URL is expected to be supplied by [data/phpServerIP.txt](../data/phpServerIP.txt) or another LittleFS-backed source at runtime.
 
 ## Watchdog behavior
 A software watchdog is implemented with Ticker:
 - lwdtFeed() updates the heartbeat timestamp.
 - lwdtcb() restarts the ESP32 if the loop stalls or the timeout bookkeeping becomes inconsistent.
-- The timeout is currently 15000 ms.
+- The timeout is currently 15 000 ms.
 
 ## Filesystem configuration
-LittleFS files expected in data/:
+LittleFS files expected in [data](../data):
 - aes.txt
 - iv.txt
 - blynkAuth.txt
 - api.txt
+- phpServerIP.txt
 - ssid_pass_aes.txt
 
-Upload filesystem data before first boot if values are missing. decryptWifiCredentials() requires the auth and cipher material files to be present.
+Upload filesystem data before the first boot if values are missing. decryptWifiCredentials() requires the auth and cipher material files to be present.
 
 ## Security notes
 - Do not commit real auth tokens, keys, or passwords.
-- If possible, move the Blynk token and backend host into encrypted files or build-time configuration.
-- Consider replacing plain HTTP with authenticated HTTPS when hardware and server constraints allow it.
+- Keep the Blynk token and backend host in LittleFS-backed files or build-time configuration.
+- Prefer authenticated HTTPS when the server and hardware constraints allow it.
 
 ## Common PlatformIO commands
 From the project root:

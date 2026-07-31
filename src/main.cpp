@@ -298,7 +298,7 @@ void refreshWidgets() // called every x seconds by SimpleTimer
 {
   String location;
   char tmp[256];
-  
+
   queHealth();
 #ifdef DEBUG
   Serial.println();
@@ -552,7 +552,19 @@ void upDateWidget(char *sensor, float tokens[])
  * @return String Response payload on success, or an empty string on failure.
  *
  * @note If the macro DEBUG_PHP is defined, the response payload will be printed to the Serial monitor.
- *
+ * see C:\Users\leonr\.platformio\packages\framework-arduinoespressif32\libraries\HTTPClient\src\HTTPClient.h
+ *  HTTP client errors
+ * #define HTTPC_ERROR_CONNECTION_REFUSED  (-1)
+ * #define HTTPC_ERROR_SEND_HEADER_FAILED  (-2)
+ * #define HTTPC_ERROR_SEND_PAYLOAD_FAILED (-3)
+ * #define HTTPC_ERROR_NOT_CONNECTED       (-4)
+ * #define HTTPC_ERROR_CONNECTION_LOST     (-5)
+ * #define HTTPC_ERROR_NO_STREAM           (-6)
+ * #define HTTPC_ERROR_NO_HTTP_SERVER      (-7)
+ * #define HTTPC_ERROR_TOO_LESS_RAM        (-8)
+ * #define HTTPC_ERROR_ENCODING            (-9)
+ * #define HTTPC_ERROR_STREAM_WRITE        (-10)
+ * #define HTTPC_ERROR_READ_TIMEOUT        (-11)
  */
 String performHttpGet(const char *phpScript)
 {
@@ -560,7 +572,7 @@ String performHttpGet(const char *phpScript)
   String url = phpServerIP + phpScript;
   http.begin(url);
   int httpResponseCode = http.GET();
-  if (httpResponseCode != 200)
+  if (httpResponseCode != HTTP_CODE_OK)
   {
     Serial.printf("HTTP GET failed %s with code: %d\n", url.c_str(), httpResponseCode);
     if (httpResponseCode < 0)
@@ -946,14 +958,12 @@ BLYNK_WRITE(V49)
       "mac",
       "enable",
       "disable",
-      "forceEnable",
       "all",
   };
 
   String input = param.asStr(); // Read the input string from the terminal
   int numberOfElements = sizeof(validCommand) / sizeof(validCommand[0]);
   int indexSelected = parseInput(input, validCommand, numberOfElements);
-  // Serial.printf("index=%d\n", indexSelected);
   if (indexSelected < 0)
     return;
 
@@ -995,13 +1005,8 @@ BLYNK_WRITE(V49)
     break;
   case 10:
     disableTimer();
-    lastStateTimer = "disable";
     break;
-  case 11:
-    lastStateTimer = "enable";
-    enableTimer();
-    break;
-  case 12:
+  default:
     timer.disable(timerID1); // pause periodic refresh to prevent socket contention during user input
     queStat();               // All tasks complete?
     for (const auto &pair : netMap)
@@ -1483,11 +1488,6 @@ void disableTimer()
 }
 void enableTimer()
 {
-  if (lastStateTimer == "disable")
-  {
-    Serial.println("timer enable bypassed");
-    return;
-  }
   Serial.println("timer enable");
   timer.enable(timerID1);
 }

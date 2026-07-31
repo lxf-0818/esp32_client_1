@@ -27,9 +27,10 @@ Primary ESP32 client runtime for Blynk integration, backend polling, sensor refr
 ## Widget refresh path
 refreshWidgets() currently:
 1. calls performHttpGet(ipMacList) to fetch the roster payload
-2. calls getSensorData_old() to parse the roster, rebuild netMap, and socket-poll each node
-3. updates Blynk counters and status pins (V51, V7, V20, V19, V34, V47)
-4. updates the terminal only when the roster payload changes
+2. calls queHealth() to inspect HTTP queue backlog before continuing
+3. calls getSensorData_old() to parse the roster, rebuild netMap, and socket-poll each node
+4. updates Blynk counters and status pins (V51, V7, V20, V19, V34, V47)
+5. updates the terminal only when the roster payload changes
 
 If the HTTP fetch fails or the parsed sensor count is zero, the function writes a status message to V39 and returns early.
 
@@ -58,7 +59,7 @@ Command parsing uses startsWith(), so prefix matches are accepted.
 ## Helper functions
 - performHttpGet(url): HTTP GET wrapper that returns the response body or an empty string on failure.
 - getSensorData_old(sensorsConnected): parses the roster payload, rebuilds netMap, and polls each node using socketClient().
-- getSensorData_new(): exists in the codebase and rebuilds netMap/ipMap, but the active refresh path is still wired through getSensorData_old().
+- getSensorData_new(): rebuilds netMap/ipMap and can be used for the newer polling flow.
 - getSensorData4User(input, ip, room): polls one node and prints filtered readings to the terminal.
 - processSensorData(tokens, location): maps sensor codes to names and enqueues HTTP POST payloads.
 - blynkWrite(cmd, index): sends BLK or RST to the selected node group.
@@ -103,6 +104,6 @@ The client prepends phpServerIP to the following backend scripts:
 - lwdtcb() restarts the device if the heartbeat is stale or the timeout bookkeeping is inconsistent.
 
 ## Notes
-- The current firmware still uses getSensorData_old() in the active refresh path.
-- The helper getIP() is currently commented out.
+- The active refresh path uses getSensorData_old() in the current build.
+- The helper getIP() is currently commented out in the source.
 - The global tokens buffer is reused across polls, so the code clears it before each socket request.
