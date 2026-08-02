@@ -51,7 +51,7 @@ If the HTTP fetch fails or the parsed sensor count is zero, the function writes 
 - i2c: fetches and prints I2C mappings from each node
 - ip: prints the de-duplicated IP/location list
 - mac: prints the de-duplicated MAC/location list
-- enable / disable / forceEnable: control the periodic refresh timer
+- enable / disable: control the periodic refresh timer
 - all: polls each known node and prints a live reading summary
 
 Command parsing uses startsWith(), so prefix matches are accepted.

@@ -92,7 +92,7 @@ void initRTOS();
 int socketRecovery(char *IP, char *cmd2Send, char *location);
 void taskSocketRecov(void *pvParameters);
 void taskSQL_HTTP(void *pvParameters);
-void setupHTTP_request(const String &sensorName, const String &sensorLocation, float tokens[]);
+void setupHTTP_request(const String &sensorName, const String &sensorLocation, float tokens[], int &passSocket);
 void taskBlink(void *pvParameters);
 void processSensorData(float tokens[][5], const String &sensor);
 bool queStat();
@@ -102,7 +102,7 @@ void updateBlynk();
 String ip2mac(const String &ip);
 String performHttpGet(const char *url);
 void enableTimer();
-void disableTimer();
+void disableTimer(String reason);
 int validateLastInsertRow(const int row, const String &msg);
 String find(String msg, String toFind);
 void setTokens(int failCnt);
@@ -338,7 +338,8 @@ void taskSQL_HTTP(void *pvParameters)
                     passSocket--;
                     // once tested remove the following lines
                     http.end();
-                    disableTimer();
+                    String reason = "last insert failed ";
+                    disableTimer(reason);
                     continue;
                     //
 
@@ -417,7 +418,7 @@ void taskSocketRecov(void *pvParameters)
                 int x = (*socketQue.fun_ptr)(socketQue.ipAddr, socketQue.cmd);
                 if (!x)
                 {
-                    setTokens(retryPerIO); // for all devices
+                    setTokens(retryPerIO); // set retry cnt per io for all devices
                     processSensorData(tokens, socketQue.location);
                     recoveredSocket++;
                     updateBlynk();
@@ -454,10 +455,14 @@ void taskSocketRecov(void *pvParameters)
  * @param sensorLocation  Logical location label.
  * @param tokens          Float array used by index:
  *                        - tokens[1], tokens[2], tokens[3], tokens[4]
+ * @param passSocket      Reference to the shared pass counter. It is incremented
+ *                        before enqueueing the message and is also stored as
+ *                        the HTTP message key.
  *
  * @details
  * - Uses a local `httpMsg_t` object and copies request text into `message.line`.
  * - Rejects payloads that do not fit in `message.line` (`MAX_LINE_LENGTH`).
+ * - Increments the caller's `passSocket` counter before queueing the message.
  * - Sets `message.key = passSocket`.
  * - Uses `xQueueSend(..., 0)` (no wait); if queue is full, enqueue fails immediately.
  *
@@ -469,15 +474,16 @@ void taskSocketRecov(void *pvParameters)
  *
  * @warning
  * - `tokens` must be valid and contain at least 5 elements.
- * - Indices are intentionally 1-based in this code path.
+ * - Indices are intentionally 1-based in this code path. (index 0 is used for sensor id)
  */
-void setupHTTP_request(const String &sensorName, const String &sensorLocation, float tokens[])
+void setupHTTP_request(const String &sensorName, const String &sensorLocation, float tokens[],int &passSocket)
 {
     httpMsg_t message;
     int retryCnt = tokens[4];
 
     if (QueHTTP_Handle != NULL && uxQueueSpacesAvailable(QueHTTP_Handle) > 0)
     {
+        passSocket++;
         String httpRequestData = "api_key=" + phpKey;
         httpRequestData += "&sensor=" + sensorName;
         httpRequestData += "&location=" + sensorLocation;
@@ -491,7 +497,8 @@ void setupHTTP_request(const String &sensorName, const String &sensorLocation, f
         {
             Serial.printf("setupHTTP_request: payload too long (%u >= %u)\n",
                           (unsigned)httpRequestData.length(), (unsigned)sizeof(message.line));
-            disableTimer();
+            String reason = "setupHTTP_request: payload too long";
+            disableTimer(reason);
             return;
         }
 #ifdef DEBUG
@@ -500,16 +507,8 @@ void setupHTTP_request(const String &sensorName, const String &sensorLocation, f
 
         httpRequestData.toCharArray(message.line, sizeof(message.line)); // bounded + null-terminated
         message.key = passSocket;
-        // message.line[strlen(message.line)] = 0; // Add the terminating null
         int ret = xQueueSend(QueHTTP_Handle, (void *)&message, 0);
-
-        if (ret == pdTRUE)
-        {
-
-            /*  Serial.println(" msg struct send to QueSocket sucessfully"); */
-        }
-
-        else if (ret == errQUEUE_FULL)
+        if (ret == errQUEUE_FULL)
             Serial.println(".......unable to send data to htpp Queue it's Full");
     }
     else
@@ -517,7 +516,8 @@ void setupHTTP_request(const String &sensorName, const String &sensorLocation, f
         if (QueHTTP_Handle != NULL)
         {
             Serial.printf("setupHTTP failed size  %d\n", uxQueueSpacesAvailable(QueHTTP_Handle));
-            disableTimer();
+            String reason = "no space left on queue";
+            disableTimer(reason);
         }
     }
 }
@@ -526,7 +526,7 @@ void setupHTTP_request(const String &sensorName, const String &sensorLocation, f
  * @brief Task function to blink an LED at a specified interval.
  *
  * This FreeRTOS task toggles the state of the built-in LED (LED_BUILTIN)
- * on and off with a delay specified by the parameter passed to the task.
+ * on an d off with a delay specified by the parameter passed to the task.
  * The delay is converted from milliseconds to ticks using the
  * FreeRTOS macro `portTICK_PERIOD_MS`.
  *
@@ -590,6 +590,7 @@ bool queStat()
     xSemaphoreTake(xMutex_sock, portMAX_DELAY);
     xSemaphoreTake(xMutex_http, portMAX_DELAY);
     Serial.println("All tasks complete");
+    //now release both Semaphores
     xSemaphoreGive(xMutex_http);
     xSemaphoreGive(xMutex_sock);
 
@@ -620,7 +621,8 @@ int validateLastInsertRow(const int row, const String &msg)
     if (index < 0)
     {
         Serial.printf("parse.php failed row %d results last %s \n", row, lastInsertResults.c_str());
-        disableTimer();
+        String reason = "parse.php failed";
+        disableTimer(reason);
         return 0;
     }
     String pid = lastInsertResults.substring(0, index);
@@ -636,9 +638,11 @@ int validateLastInsertRow(const int row, const String &msg)
         return 0;
     else
     {
-        disableTimer();
+        String reason = "validateLastInsertRow failed";
+        disableTimer(reason);
         Serial.printf("passPost %d pid %s key %s\n", row, pid.c_str(), key.c_str());
         return 1;
+        // needs debug 
         HTTPClient http;
         WiFiClient client_sql;
         String serverName = phpServerIP + "post-esp-data.php";
@@ -686,8 +690,10 @@ int validateLastInsertRow(const int row, const String &msg)
 
         else
         {
+
             Serial.printf("retry failed rc %d\n", httpResponseCode);
-            disableTimer();
+            String reason = "retry failed";
+            disableTimer(reason);
             return 2;
         }
     }
@@ -751,6 +757,5 @@ void queHealth()
         Serial.printf("que busy %d space open %d pid %d \n", cnt, uxQueueSpacesAvailable(QueHTTP_Handle), passSocket);
         if (!queStat())
             ESP.restart();
-        // disableTimer();
     }
 }

@@ -120,11 +120,13 @@ void dumpIP();
 String mac2room(const String &sensor);
 int parseInput(String input, String validCommand[], int count);
 void displayValidCmdList(String validCommand[], int count);
-void setupHTTP_request(const String &sensorName, const String &location, float tokens[]);
+void setupHTTP_request(const String &sensorName, const String &location, float tokens[],int &passSocket);
 void updateBlynk();
 String ip2mac(const String &ip);
 void enableTimer();
+void disableTimer(String reason);
 void disableTimer();
+
 int queHealth();
 
 /**
@@ -299,7 +301,7 @@ void refreshWidgets() // called every x seconds by SimpleTimer
   String location;
   char tmp[256];
 
-  queHealth();
+  queHealth();  //flush all last 
 #ifdef DEBUG
   Serial.println();
 #endif
@@ -1397,9 +1399,8 @@ void processSensorData(float tokens[][5], const String &location)
     auto it = sensorMap.find(sensorCode);
     if (it != sensorMap.end())
     {
-      passSocket++;
-      // send to freeRTOS queque
-      setupHTTP_request(it->second, location, tokens[i]);
+      // send to freeRTOS queue
+      setupHTTP_request(it->second, location, tokens[i],passSocket);
 
       //   upDateWidget(it->second, tokens[i]);
     }
@@ -1483,6 +1484,12 @@ String ip2mac(const String &ip)
 }
 void disableTimer()
 {
+  Serial.println("timer disable");
+  timer.disable(timerID1);
+}
+void disableTimer(String reason)
+{
+  Blynk.virtualWrite(V47, reason);
   Serial.println("timer disable");
   timer.disable(timerID1);
 }
