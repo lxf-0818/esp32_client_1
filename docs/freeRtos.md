@@ -69,11 +69,11 @@ Builds a URL-encoded POST body and sends it to QueHTTP_Handle. The payload conta
 
 The function uses a non-blocking queue send and drops the message if the queue is full.
 
-### queStat()
+### waitForQueuesToDrain()
 Waits for both queues to drain and then takes the mutexes before returning. This is used by the watchdog and terminal reboot path.
 
 ### queHealth()
-Checks the queued HTTP backlog and, when messages are pending, reports the backlog size, available queue slots, and current pass counter. If queStat() reports that the queue state is still unhealthy, the function restarts the ESP32; otherwise it disables the periodic timer to stop further work in a degraded state.
+Checks the queued HTTP backlog and, when messages are pending, reports the backlog size, available queue slots, and current pass counter. If waitForQueuesToDrain() reports that the queue state is still unhealthy, the function restarts the ESP32; otherwise it disables the periodic timer to stop further work in a degraded state.
 
 ## Operational notes
 - The queue backpressure is intentionally small, so overflow triggers cleanup instead of indefinite backlog growth.

@@ -20,7 +20,7 @@
  *
  * @author Leon Freimour
  * @date 2026-04-30
- *
+ *Doxygen
  * @note The Blynk auth token is stored encrypted in LittleFS (/blynkAuth.txt) and
  *       decrypted at boot by cryptography.cpp. Do not hard-code it in source.
  *
@@ -39,12 +39,12 @@
  * - getSensorData4User(): Resolves sensor IPs and reports live readings to the Blynk terminal.
  * - getIP(): Case-insensitive map lookup; returns matching IPs as a '|'-delimited string.
  * - isServerConnected(): TCP reachability check for a given IP and port.
- * - printUptime(): Formats and writes uptime to the Blynk terminal (V49).
- * - ping(): TCP-pings all netMap entries and HTTP-pings ipList; reports results to V49.
+ * - printUptime(): Formats and writes uptime to the Blynk terminal (V_TERM).
+ * - ping(): TCP-pings all netMap entries and HTTP-pings ipList; reports results to V_TERM.
  * - generateInterrupt(): Manually invokes the watchdog ISR for testing.
  * - BLYNK_CONNECTED(): Callback for Blynk connection events.
  * - BLYNK_WRITE(V18): Clears remote IP registrations via HTTP GET.
- * - BLYNK_WRITE(V49): Terminal command parser.
+ * - BLYNK_WRITE(V_TERM): Terminal command parser.
  * - BLYNK_WRITE(BLINK_TST): Sends BLK test command to all known sensor nodes.
  *
  * @section Constants
@@ -81,7 +81,8 @@
 #define SCREEN_HEIGHT 64 // OLED display height, in pixels
 #define BLYNK_PRINT Serial
 #define DEVICES 8
-#define DEBUG
+#define REFRESH_TIME 5
+// #define DEBUG
 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 #define SSD_ADDR 0x3c
@@ -99,7 +100,7 @@ int getSensorData_new();
 void dumpMAC();
 int createMap();
 void getSensorData4User(const String &input, const String &ip, const String &room);
-int socketRecovery(char *IP, char *cmd2Send, char *MAC);
+int socketRecovery(const char *IP, char *cmd2Send, char *MAC);
 void processSensorData(float tokens[DEVICES][5], const String &location);
 String performHttpGet(const char *url);
 int decryptWifiCredentials(char *auth, char *ssid, char *psw);
@@ -109,7 +110,7 @@ void upDateWidget(char *sensorName, float tokens[]);
 void dumpI2C();
 void lwdtFeed(void);
 void ICACHE_RAM_ATTR lwdtcb(void);
-bool queStat();
+bool waitForQueuesToDrain();
 bool isServerConnected(const char *serverIP, uint16_t port = 8888);
 void generateInterrupt();
 void printUptime();
@@ -120,14 +121,14 @@ void dumpIP();
 String mac2room(const String &sensor);
 int parseInput(String input, String validCommand[], int count);
 void displayValidCmdList(String validCommand[], int count);
-void setupHTTP_request(const String &sensorName, const String &location, float tokens[],int &passSocket);
+void setupHTTP_request(const String &sensorName, const String &location, float tokens[], int &passSocket);
 void updateBlynk();
 String ip2mac(const String &ip);
 void enableTimer();
-void disableTimer(String reason);
+void disableTimer(const String &reason);
 void disableTimer();
 
-int queHealth();
+int checkQueueHealth();
 
 /**
  * @brief Network metadata for one sensor entry.
@@ -153,20 +154,20 @@ String menuList[] = {"Main Room", "ADC Guest Room", "Mud Room", "Master Bedroom"
                      "ALL"};
 const uint16_t port = 8888;
 String sensorName = "NO DEVICE";
-int failSocket, passSocket, recoveredSocket, retry, timerID1, passPost;
+int failSocket, passSocket, recoveredSocket, retry, timerID1;
 HTTPClient http;
 String lastMsg;
 char lastBoot[20], strReason[60];
 BlynkTimer timer;
 float tokens[DEVICES][5];
-bool setAlarm = false;
+bool timerDisable = false;
 Ticker lwdTicker;
 String lastSensorsConnected = "";
 String lastStateTimer = "enable";
 String phpServerIP;
-// bool stop = false;
 #define LWD_TIMEOUT 15 * 1000 // Reboot if loop watchdog timer reaches this time out value
 unsigned long lwdTime = 0;
+// unsigned long lwdPass = 0;
 unsigned long lwdTimeout = LWD_TIMEOUT;
 const char *getRowCnt = "rows.php";
 const char *deleteAll = "truncate.php";
@@ -199,11 +200,9 @@ const char *ipDelete = "deleteMAC.php";
  */
 void setup()
 {
-  Serial.begin(115200);
+  Serial.begin(115200); //  monitor_speed = 115200  (put in platformio.h)
   char auth[50];
   char ssid[40], pass[40];
-
-  lastMsg = "no warnings";
   String tmp;
   if (decryptWifiCredentials(auth, ssid, pass))
     ESP.restart();
@@ -216,7 +215,7 @@ void setup()
     flashSSD();
 
   // Serial.println("Turned off timer in setup()");
-  timerID1 = timer.setInterval(1000L * 5, refreshWidgets); //
+  timerID1 = timer.setInterval(1000L * REFRESH_TIME, refreshWidgets); //
   lastStateTimer = "enable";
   lwdtFeed();
   lwdTicker.attach_ms(LWD_TIMEOUT, lwdtcb); // attach lwdt callback routine to Ticker object
@@ -300,24 +299,27 @@ void refreshWidgets() // called every x seconds by SimpleTimer
 {
   String location;
   char tmp[256];
+  // lwdPass = passSocket;
 
-  queHealth();  //flush all last 
+  checkQueueHealth(); // wait till all queues  are cleared (from previous event ) and semaphores are released
+
 #ifdef DEBUG
-  Serial.println();
+  Serial.println(".....");
 #endif
 
   String sensorsConnected = performHttpGet(ipMacList);
   if (sensorsConnected.isEmpty())
   {
     sprintf(tmp, "Failed to fetch sensors from mySQL ");
-    Blynk.virtualWrite(V39, tmp);
+    Blynk.virtualWrite(V_MSG, tmp);
     return;
   }
   int sensorCnt = getSensorData_old(sensorsConnected);
+  // int sensorCnt = getSensorData_new();
   if (!sensorCnt)
   {
     sprintf(tmp, "No sensors connected to network\n");
-    Blynk.virtualWrite(V39, tmp);
+    Blynk.virtualWrite(V_MSG, tmp);
     return;
   }
   Blynk.virtualWrite(V51, sensorCnt);
@@ -325,12 +327,11 @@ void refreshWidgets() // called every x seconds by SimpleTimer
   Blynk.virtualWrite(V20, failSocket);
   Blynk.virtualWrite(V19, recoveredSocket);
   Blynk.virtualWrite(V34, retry);
-  Blynk.virtualWrite(V47, lastMsg);
 
   if (lastSensorsConnected != sensorsConnected) // only update Blynk terminal when IP list changes
   {
     lastSensorsConnected = sensorsConnected;
-    Blynk.virtualWrite(V49, "\nStart:\n");
+    Blynk.virtualWrite(V_TERM, "\nStart:\n");
     for (const auto &pair : netMap)
     {
       location = pair.second.location.c_str();
@@ -338,12 +339,12 @@ void refreshWidgets() // called every x seconds by SimpleTimer
       String sensor = pair.first.c_str();
       sensor = sensor.substring(0, sensor.length() - 2);
       sprintf(tmp, "Sensor: %s  %s \n", sensor.c_str(), location.c_str());
-      Blynk.virtualWrite(V49, tmp);
+      Blynk.virtualWrite(V_TERM, tmp);
       sprintf(tmp, "\t\tIP: %s \n", pair.second.ipAddress.c_str());
-      Blynk.virtualWrite(V49, tmp);
+      Blynk.virtualWrite(V_TERM, tmp);
     }
     sprintf(tmp, "\n\tenter 'list' for valid commands\n");
-    Blynk.virtualWrite(V49, tmp);
+    Blynk.virtualWrite(V_TERM, tmp);
   }
 }
 void resetStats()
@@ -352,8 +353,8 @@ void resetStats()
   Blynk.virtualWrite(V20, failSocket);
   Blynk.virtualWrite(V19, recoveredSocket);
   Blynk.virtualWrite(V34, retry);
-  Blynk.virtualWrite(V47, "");
-  Blynk.virtualWrite(V49, "reset complete\n");
+  Blynk.virtualWrite(V_MSG, "");
+  Blynk.virtualWrite(V_TERM, "reset complete\n");
 }
 /**
  * @brief Callback function that is triggered when the device connects to the Blynk server.
@@ -386,7 +387,7 @@ BLYNK_CONNECTED()
   Blynk.virtualWrite(VFAIL, 0);  // reset failed socket
   Blynk.virtualWrite(VRECOV, 0); //   "   recover
   Blynk.virtualWrite(VRETRY, 0); //   "   retry
-  Blynk.virtualWrite(V39, "boot");
+
   String payload;
 
 #define TEST_
@@ -403,6 +404,7 @@ BLYNK_CONNECTED()
   else
   {
     passSocket = payload.toInt();
+    // lwdPass = passSocket;
     Blynk.virtualWrite(V7, passSocket);
     Serial.printf("passSocket %d  \n", passSocket);
     failSocket = recoveredSocket = retry = 0;
@@ -452,7 +454,7 @@ BLYNK_WRITE(BOOT)
  * This function checks whether loop heartbeat timing drifted beyond
  * `LWD_TIMEOUT` or if the timeout bookkeeping became inconsistent. On timeout,
  * it logs to Serial, writes a status to Blynk, waits briefly for queue drain
- * via `queStat()`, then restarts the ESP32.
+ * via `waitForQueuesToDrain()`, then restarts the ESP32.
  *
  * @note The callback is attached from `setup()` using `lwdTicker.attach_ms(...)`.
  *
@@ -461,15 +463,25 @@ BLYNK_WRITE(BOOT)
  */
 void ICACHE_RAM_ATTR lwdtcb(void)
 {
-  // Serial.println("Interrupt generated!");
-
   if ((millis() - lwdTime > LWD_TIMEOUT) || (lwdTimeout - lwdTime != LWD_TIMEOUT))
   {
     // Blynk.logEvent("3rd_WDTimer");
     // 3rd_WDTimer esp.restart 0 15000
     Serial.printf("3rd_WDTimer esp.restart %lu %lu\n", (millis() - lwdTime), (lwdTimeout - lwdTime));
-    Blynk.virtualWrite(V39, "3rd_WDTimer");
-    queStat();
+    Blynk.virtualWrite(V_MSG, "3rd_WDTimer");
+    waitForQueuesToDrain();
+    ESP.restart();
+  }
+  // if (timerDisable == true)
+  //   return;
+
+  int prevPass = passSocket;
+  delay((REFRESH_TIME * 1000) + 100);
+  if (prevPass == passSocket)
+  {
+    //Serial.printf("system not healthy\n");
+    Blynk.virtualWrite(V_MSG, "3rd_WDTimer: System not Healthy");
+    waitForQueuesToDrain();
     ESP.restart();
   }
 }
@@ -567,6 +579,8 @@ void upDateWidget(char *sensor, float tokens[])
  * #define HTTPC_ERROR_ENCODING            (-9)
  * #define HTTPC_ERROR_STREAM_WRITE        (-10)
  * #define HTTPC_ERROR_READ_TIMEOUT        (-11)
+ * HTTP GET failed http://192.168.1.9/macip.php with code: -7
+ * HTTP GET failed http://192.168.1.9/parse.php?key=236575 with code: -7
  */
 String performHttpGet(const char *phpScript)
 {
@@ -579,8 +593,8 @@ String performHttpGet(const char *phpScript)
     Serial.printf("HTTP GET failed %s with code: %d\n", url.c_str(), httpResponseCode);
     if (httpResponseCode < 0)
     {
-      Blynk.virtualWrite(V47, "HTTP rc <0");
-      queStat();
+      Blynk.virtualWrite(V_MSG, "HTTP rc <0");
+      waitForQueuesToDrain();
       ESP.restart();
     }
   }
@@ -671,23 +685,26 @@ int getSensorData_old(const String &sensorsConnected)
     int rc = socketClient((char *)ip.c_str(), (char *)"ALL"); // read sensor data from connected device
     if (rc)
     {
-      String error = ">>> socketClient failed ";
+      lastMsg = ip + " socket failed ";
       switch (rc)
       {
       case 1:
-        error += "to connect";
+        lastMsg += "to connect:" ;
         break;
       case 2:
-        error += "timeout";
+        lastMsg += "timeout" ;
         break;
       case 3:
-        error += "CRC invalid";
+        lastMsg += "CRC invalid" ;
         break;
+      default:
+        lastMsg += rc;
       }
-      lastMsg = "socketClient failed:" + ip;
+      Blynk.virtualWrite(V_MSG, lastMsg);
+
       // On socket failure, queue recovery and account the failed poll.
-      Serial.printf("%s %s %s rc: %d\n", error.c_str(), ip.c_str(), location.c_str(), rc);
-      socketRecovery((char *)ip.c_str(), (char *)"ALL", (char *)location.c_str()); // current failed write to error recovery queue
+      Serial.printf("%s %s rc: %d\n", lastMsg.c_str(), location.c_str(), rc);
+      socketRecovery((const char *)ip.c_str(), (char *)"ALL", (char *)location.c_str()); // current failed write to error recovery queue
       failSocket++;
     }
     else
@@ -711,57 +728,59 @@ int getSensorData_old(const String &sensorsConnected)
  *
  * @return int Count returned by createMap() (sensor-key count).
  */
-int getSensorData_new()
-{
-  // Rebuild maps first so this polling pass uses the latest backend roster.
-  int sensorCnt = createMap();
-  if (!sensorCnt)
-  {
-    char tmp[50];
-    sprintf(tmp, "No sensors connected to network\n");
-    Blynk.virtualWrite(V39, tmp);
-    return 0;
-  }
+// int getSensorData_new()
+// {
+//   // Rebuild maps first so this polling pass uses the latest backend roster.
+//   int sensorCnt = createMap();
+//   if (!sensorCnt)
+//   {
+//     char tmp[50];
+//     sprintf(tmp, "No sensors connected to network\n");
+//     Blynk.virtualWrite(V_MSG, tmp);
+//     return 0;
+//   }
 
-  // Poll each unique IP once; ipMap is de-duplicated by device IP.
-  for (const auto &pair : ipMap)
-  {
-    // Keep context strings for logs and recovery queue payload.
-    String location = pair.second.location.c_str();
-    String sensorName = pair.first.c_str();
-    String ip = pair.second.ipAddress.c_str();
+//   // Poll each unique IP once; ipMap is de-duplicated by device IP.
+//   for (const auto &pair : ipMap)
+//   {
+//     // Keep context strings for logs and recovery queue payload.
+//     String location = pair.second.location.c_str();
+//     String sensorName = pair.first.c_str();
+//     String ip = pair.second.ipAddress.c_str();
 
-    // Clear shared token buffer before each node poll.
-    memset(tokens, 0, sizeof(tokens));
-    int rc = socketClient((char *)ip.c_str(), (char *)"ALL"); // read sensor data from connected device
-    if (rc)
-    {
-      String error = ">>> socketClient failed ";
-      switch (rc)
-      {
-      case 1:
-        error += "to connect";
-        break;
-      case 2:
-        error += "timeout";
-        break;
-      case 3:
-        error += "CRC invalid";
-        break;
-      }
-      lastMsg = "socketClient failed:" + ip;
-      // On socket failure, queue recovery and account the failed poll.
-      Serial.printf("%s %s %s rc: %d\n", error.c_str(), ip.c_str(), location.c_str(), rc);
-      socketRecovery((char *)ip.c_str(), (char *)"ALL", (char *)sensorName.c_str()); // current failed write to error recovery queue
-      failSocket++;
-    }
-    else
-    {
-      processSensorData(tokens, location.c_str());
-    }
-  }
-  return sensorCnt;
-}
+//     // Clear shared token buffer before each node poll.
+//     memset(tokens, 0, sizeof(tokens));
+//     int rc = socketClient((char *)ip.c_str(), (char *)"ALL"); // read sensor data from connected device
+//     if (rc)
+//     {
+//       String error = ip + " socketClient failed ";
+//       switch (rc)
+//       {
+//       case 1:
+//         error += "to connect:" + rc;
+//         break;
+//       case 2:
+//         error += "timeout" + rc;
+//         break;
+//       case 3:
+//         error += "CRC invalid" + rc;
+//         break;
+//       default:
+//         error += "invalid rc:" + rc;
+//       }
+//       Blynk.virtualWrite(V_MSG, error);
+//       // On socket failure, queue recovery and account the failed poll.
+//       Serial.printf("error %s %s %s rc: %d\n", error.c_str(), ip.c_str(), location.c_str(), rc);
+//       socketRecovery((char *)ip.c_str(), (char *)"ALL", (char *)sensorName.c_str()); // current failed write to error recovery queue
+//       failSocket++;
+//     }
+//     else
+
+//       processSensorData(tokens, location.c_str());
+//   }
+
+//   return sensorCnt;
+// }
 
 /**
  * @brief Builds in-memory sensor maps from the backend MAC/IP roster payload.
@@ -787,7 +806,7 @@ int createMap()
   if (sensorsConnected.isEmpty())
   {
     sprintf(tmp, "Failed to fetch sensors from mySQL ");
-    Blynk.virtualWrite(V39, tmp);
+    Blynk.virtualWrite(V_MSG, tmp);
     return 1;
   }
 
@@ -843,7 +862,7 @@ int createMap()
   ipMap.clear();
   for (const auto &pair : netMap)
   {
-    // Serial.printf("create map %s\n", pair.first.c_str());
+    //    Serial.printf("create map %s %s\n", pair.first.c_str(),pair.second.ipAddress.c_str());
     ipMap[pair.second.ipAddress.c_str()] = {pair.second.ipAddress.c_str(),
                                             pair.second.macAddress.c_str(),
                                             pair.second.location.c_str()};
@@ -853,7 +872,7 @@ int createMap()
 }
 
 /**
- * @brief Prints the terminal command list to Blynk virtual pin V49.
+ * @brief Prints the terminal command list to Blynk virtual pin V_TERM.
  *
  * Iterates through the provided command array and writes one command per line
  * to the Blynk terminal widget. Output format is `<command>\n`.
@@ -868,7 +887,7 @@ void displayValidCmdList(String validCommand[], int numberOfElements)
   {
     // Serial.println(validCommand[i]);
     sprintf(tmp, "%s\n", validCommand[i].c_str());
-    Blynk.virtualWrite(V49, tmp);
+    Blynk.virtualWrite(V_TERM, tmp);
   }
 }
 
@@ -881,7 +900,7 @@ void displayValidCmdList(String validCommand[], int numberOfElements)
  * Return codes:
  * - `>= 0`: matched command index in `validCommand[]`.
  * - `-1`: empty input.
- * - `-2`: no command match; also writes an error to terminal pin V49.
+ * - `-2`: no command match; also writes an error to terminal pin V_TERM.
  *
  * @param input User-entered command string from the Blynk terminal.
  * @param validCommand Array of valid command tokens.
@@ -911,7 +930,7 @@ int parseInput(String input, String validCommand[], int numberOfElements)
   if (!found)
   {
     sprintf(tmp, "command _%s_ not vaild \n", input.c_str());
-    Blynk.virtualWrite(V49, tmp);
+    Blynk.virtualWrite(V_TERM, tmp);
     return -2;
   }
   return indexSelected;
@@ -920,17 +939,17 @@ int parseInput(String input, String validCommand[], int numberOfElements)
 /**
  * @brief Handles input from the Blynk terminal widget.
  *
- * This function is triggered whenever a string is sent to the virtual pin V49
+ * This function is triggered whenever a string is sent to the virtual pin V_TERM
  * (configured as a terminal widget in the Blynk app). It reads the input string
  * and dispatches a matching command handler.
  *
  * Supported commands:
- * - "list": prints all valid terminal commands to V49.
- * - "reboot": calls `queStat()`, writes completion status if queues are drained,
+ * - "list": prints all valid terminal commands to V_TERM.
+ * - "reboot": calls `waitForQueuesToDrain()`, writes completion status if queues are drained,
  *   then restarts the ESP32.
  * - "ping": TCP-pings every entry in `ipMap` and HTTP-pings `ipList`, then reports
- *   pass/dead counts and elapsed time to V49.
- * - "up": writes formatted uptime (days/hours/minutes/seconds) to V49.
+ *   pass/dead counts and elapsed time to V_TERM.
+ * - "up": writes formatted uptime (days/hours/minutes/seconds) to V_TERM.
  * - "reset": resets fail/recovered/retry counters and related status output.
  * - "refr": clears `lastSensorsConnected` then forces `refreshWidgets()`.
  * - "i2c": polls each known node and prints I2C pin/address mappings.
@@ -942,11 +961,11 @@ int parseInput(String input, String validCommand[], int numberOfElements)
  * `validCommand[]` is selected.
  *
  * Invalid or empty input returns early after parse validation. Unrecognized
- * commands write an error message to V49 in `parseInput()`.
+ * commands write an error message to V_TERM in `parseInput()`.
  *
  * @param param The parameter object containing the string sent to the terminal widget.
  */
-BLYNK_WRITE(V49)
+BLYNK_WRITE(V_TERM)
 {
   String validCommand[] = {
       "list",
@@ -975,7 +994,7 @@ BLYNK_WRITE(V49)
     displayValidCmdList(validCommand, numberOfElements);
     break;
   case 1:
-    queStat();
+    waitForQueuesToDrain();
     ESP.restart();
     break;
   case 2:
@@ -1010,7 +1029,7 @@ BLYNK_WRITE(V49)
     break;
   default:
     timer.disable(timerID1); // pause periodic refresh to prevent socket contention during user input
-    queStat();               // All tasks complete?
+    waitForQueuesToDrain();
     for (const auto &pair : netMap)
       getSensorData4User(pair.first.c_str(), pair.second.ipAddress.c_str(), pair.second.location.c_str());
     timer.enable(timerID1);
@@ -1022,7 +1041,7 @@ BLYNK_WRITE(V49)
  *
  * Builds a temporary map keyed by `ipAddress` from `netMap` so devices that expose
  * multiple sensor keys are shown once. For each unique IP, writes one formatted line
- * to virtual terminal V49.
+ * to virtual terminal V_TERM.
  *
  * Output format per line:
  * - `<ipAddress>\t <location>`
@@ -1032,9 +1051,9 @@ void dumpIP()
   char tmp[100];
   for (const auto &pair : ipMap)
   {
-
+    //   Serial.printf("dumpip %s %s \n", pair.second.ipAddress.c_str(), pair.second.location.c_str());
     sprintf(tmp, "%12s\t %s\n", pair.second.ipAddress.c_str(), pair.second.location.c_str());
-    Blynk.virtualWrite(V49, tmp);
+    Blynk.virtualWrite(V_TERM, tmp);
   }
 }
 void dumpMAC()
@@ -1043,12 +1062,12 @@ void dumpMAC()
   for (const auto &pair : ipMap)
   {
     sprintf(tmp, "%12s\t %s\n", pair.second.macAddress.c_str(), pair.second.location.c_str());
-    Blynk.virtualWrite(V49, tmp);
+    Blynk.virtualWrite(V_TERM, tmp);
   }
 }
 
 /**
- * @brief Writes formatted uptime to the Blynk terminal widget (V49).
+ * @brief Writes formatted uptime to the Blynk terminal widget (V_TERM).
  *
  * Converts `millis()` into days/hours/minutes/seconds and publishes a single
  * formatted line to the terminal.
@@ -1070,7 +1089,7 @@ void printUptime()
   // Print uptime to the serial monitor
   sprintf(tmp, "Uptime: %lu days, %lu hours, %lu minutes, %lu seconds\n",
           days, hours, minutes, seconds);
-  Blynk.virtualWrite(V49, tmp);
+  Blynk.virtualWrite(V_TERM, tmp);
 }
 
 /**
@@ -1235,7 +1254,7 @@ void getSensorData4User(const String &userInput, const String &ip, const String 
       // String room = mac2room(sensor.c_str());
       sprintf(tmp, "%s %.1f %s %.1f %s %s \n",
               label.c_str(), tokens[i][1], postFix.c_str(), tokens[i][2], postFix2.c_str(), room.c_str());
-      Blynk.virtualWrite(V49, tmp);
+      Blynk.virtualWrite(V_TERM, tmp);
     }
   }
   if (!deviceFound)
@@ -1246,7 +1265,7 @@ void getSensorData4User(const String &userInput, const String &ip, const String 
  * @brief Runs connectivity checks for all known nodes and backend roster URL.
  *
  * For each entry in `netMap`, performs 4 TCP reachability checks using
- * `isServerConnected()` and writes pass/dead counts to Blynk terminal V49.
+ * `isServerConnected()` and writes pass/dead counts to Blynk terminal V_TERM.
  * It then performs 4 HTTP GET checks against `ipList` and reports aggregate
  * pass/dead results.
  */
@@ -1275,7 +1294,7 @@ void ping()
     totalDead += dead;
     sprintf(line1, "\tpass %d dead %d  time: %lu ms\n", alive, dead, millis() - start);
     strcat(line, line1);
-    Blynk.virtualWrite(V49, line);
+    Blynk.virtualWrite(V_TERM, line);
   }
   // ping http
   alive = dead = 0;
@@ -1293,9 +1312,9 @@ void ping()
   totalDead += dead;
   sprintf(line1, "\n\t pass %d dead %d time: %lu ms\n", alive, dead, millis() - start);
   strcat(line, line1);
-  Blynk.virtualWrite(V49, line);
+  Blynk.virtualWrite(V_TERM, line);
   sprintf(line1, "Summary alive: %d dead:%d\n", totalPass, totalDead);
-  Blynk.virtualWrite(V49, line1);
+  Blynk.virtualWrite(V_TERM, line1);
 }
 
 /**
@@ -1356,8 +1375,6 @@ void blynkWrite(const String &cmd, int index)
       found = true;
       str = socketClient((char *)pair.second.ipAddress.c_str(), cmd); // returns heap-allocated C-string
       Serial.printf("Message Recieved from Socket %s \n", str);
-      lastMsg = str;
-      Blynk.virtualWrite(V47, str);
       free(str);  // release heap buffer returned by socketClient
       lwdtFeed(); // reset watchdog; BLK round-trip can exceed LWD_TIMEOUT on slow nodes
     }
@@ -1400,7 +1417,7 @@ void processSensorData(float tokens[][5], const String &location)
     if (it != sensorMap.end())
     {
       // send to freeRTOS queue
-      setupHTTP_request(it->second, location, tokens[i],passSocket);
+      setupHTTP_request(it->second, location, tokens[i], passSocket);
 
       //   upDateWidget(it->second, tokens[i]);
     }
@@ -1419,7 +1436,7 @@ void processSensorData(float tokens[][5], const String &location)
  * sends the `I2C` socket command to each node, then parses response tuples in the form:
  * `TAG:SDA_PIN,SCL_PIN|` (for example `76:D2(4),D1(5)|`).
  *
- * For every parsed tuple, one formatted line is written to terminal widget V49.
+ * For every parsed tuple, one formatted line is written to terminal widget V_TERM.
  */
 void dumpI2C()
 {
@@ -1449,7 +1466,7 @@ void dumpI2C()
       sprintf(tmp, "I2C@: 0x%s:%s\n\t sca:%s scl:%s\n ",
               i2cAddress.c_str(), location.c_str(), sca.c_str(), scl.c_str());
 
-      Blynk.virtualWrite(V49, tmp);
+      Blynk.virtualWrite(V_TERM, tmp);
       // Move to the next tuple in the stream.
       data = data.substring(index2 + 1);
     }
@@ -1485,16 +1502,20 @@ String ip2mac(const String &ip)
 void disableTimer()
 {
   Serial.println("timer disable");
+  timerDisable = true;
   timer.disable(timerID1);
 }
-void disableTimer(String reason)
+void disableTimer(const String &reason)
 {
-  Blynk.virtualWrite(V47, reason);
+  Blynk.virtualWrite(V_MSG, reason);
+  timerDisable = true;
+
   Serial.println("timer disable");
   timer.disable(timerID1);
 }
 void enableTimer()
 {
+  timerDisable = false;
   Serial.println("timer enable");
   timer.enable(timerID1);
 }

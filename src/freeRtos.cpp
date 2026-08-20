@@ -40,7 +40,7 @@
  *   - `taskSQL_HTTP`: Processes HTTP POST requests from the queue to a PHP endpoint.
  *   - `setupHTTP_request`: Prepares and enqueues an HTTP POST request.
  *   - `taskBlink`: Toggles the built-in LED at regular intervals.
- *   - `queStat`: Checks the status of queues and ensures all tasks are complete.
+ *   - `waitForQueuesToDrain`: Checks the status of queues and ensures all tasks are complete.
  *
  * - **Structs**:
  *   - `socket_t`: Represents a socket recovery task with a function pointer, IP address, MAC address and command.
@@ -62,7 +62,7 @@
 #include <LittleFS.h>
 
 // Constants
-#define DEBUG
+//#define DEBUG
 #define SOCKET_QUEUE_SIZE 2
 #define HTTP_QUEUE_SIZE DEVICES
 #define TASK_STACK_SIZE 2048
@@ -84,29 +84,29 @@ extern int failSocket, passSocket, recoveredSocket, retry;
 extern String phpKey;
 extern float tokens[DEVICES][5];
 extern String phpServerIP;
+int passPost;
 
-bool stop = false;
 
 // Function Prototypes
 void initRTOS();
-int socketRecovery(char *IP, char *cmd2Send, char *location);
+int socketRecovery(const char *IP, char *cmd2Send, char *location);
 void taskSocketRecov(void *pvParameters);
 void taskSQL_HTTP(void *pvParameters);
 void setupHTTP_request(const String &sensorName, const String &sensorLocation, float tokens[], int &passSocket);
 void taskBlink(void *pvParameters);
 void processSensorData(float tokens[][5], const String &sensor);
-bool queStat();
+bool waitForQueuesToDrain();
 int deleteRow(const String &phpScript);
 int socketClient(char *espServer, char *command);
 void updateBlynk();
 String ip2mac(const String &ip);
 String performHttpGet(const char *url);
 void enableTimer();
-void disableTimer(String reason);
+void disableTimer(const String &reason);
 int validateLastInsertRow(const int row, const String &msg);
 String find(String msg, String toFind);
 void setTokens(int failCnt);
-void queHealth();
+void checkQueueHealth();
 
 // Struct Definitions
 /**
@@ -128,7 +128,7 @@ typedef struct
     char cmd[20];
     char location[20];
 } socket_t;
-socket_t socketQue;
+// socket_t socketQue;
 
 /**
  * @struct httpMsg_t
@@ -147,7 +147,6 @@ typedef struct
     char line[MAX_LINE_LENGTH];
     int key;
 } httpMsg_t;
-httpMsg_t message;
 
 /**
  * @brief Initializes the FreeRTOS components for the application.
@@ -190,24 +189,13 @@ void initRTOS()
 
     pinMode(LED_BUILTIN, OUTPUT);
 
-    QueSocket_Handle = xQueueCreate(SOCKET_QUEUE_SIZE, sizeof(socket_t));
-    if (QueSocket_Handle == NULL)
-        Serial.println("Queue  socket could not be created..");
-
-    QueHTTP_Handle = xQueueCreate(HTTP_QUEUE_SIZE, sizeof(httpMsg_t));
-    if (QueHTTP_Handle == NULL)
-        Serial.println("Queue could not be created..");
-
-    xTaskCreatePinnedToCore(taskBlink, "Task Blink", TASK_STACK_SIZE, (uint32_t *)&blink_delay, 1, &blink_task_handle, 0);
-    xTaskCreatePinnedToCore(taskSQL_HTTP, "Task HTTP", TASK_STACK_SIZE * 2, (uint32_t *)&http_delay, 2, &http_task_handle, 0);
-    // moving the following task to core 0 cause task to trigger internal WD timer ??
-    xTaskCreatePinnedToCore(taskSocketRecov, "Task Sockets", TASK_STACK_SIZE * 2, (uint32_t *)&socket_delay, 3, &socket_task_handle, 1);
-
-    if (blink_task_handle == NULL || socket_task_handle == NULL || http_task_handle == NULL)
-    {
-        Serial.println("tasks not running");
-        ESP.restart();
-    }
+    /**
+     * @brief Creates the mutexes used to protect socket and HTTP work. (before esp.resart() )
+     *
+     * The RTOS tasks and recovery paths depend on both mutexes being valid.
+     * If either allocation fails, the application restarts instead of running
+     * with unsafe shared-state access.
+     */
     xMutex_sock = xSemaphoreCreateMutex();
     if (xMutex_sock == NULL)
     {
@@ -216,7 +204,38 @@ void initRTOS()
     xMutex_http = xSemaphoreCreateMutex();
     if (xMutex_http == NULL)
     {
-        Serial.println("Mutex sock can not be created");
+        Serial.println("Mutex http can not be created");
+    }
+
+    if (xMutex_http == NULL || xMutex_sock == NULL)
+        ESP.restart();
+
+    /**
+     * @brief Creates the FreeRTOS queues used for socket recovery and HTTP posting.
+     *
+     * Both queues must exist before the worker tasks start. If either allocation
+     * fails, the application restarts rather than running with incomplete RTOS state.
+     */
+    QueSocket_Handle = xQueueCreate(SOCKET_QUEUE_SIZE, sizeof(socket_t));
+    if (QueSocket_Handle == NULL)
+        Serial.println("Queue  socket could not be created..");
+
+    QueHTTP_Handle = xQueueCreate(HTTP_QUEUE_SIZE, sizeof(httpMsg_t));
+    if (QueHTTP_Handle == NULL)
+        Serial.println("Queue could not be created..");
+
+    if (QueHTTP_Handle == NULL || QueSocket_Handle == NULL)
+        ESP.restart();
+
+    xTaskCreatePinnedToCore(taskBlink, "Task Blink", TASK_STACK_SIZE, (uint32_t *)&blink_delay, 1, &blink_task_handle, 0);
+    xTaskCreatePinnedToCore(taskSQL_HTTP, "Task HTTP", TASK_STACK_SIZE * 2, (uint32_t *)&http_delay, 2, &http_task_handle, 0);
+    // Keep socket recovery on core 1; running it on core 0 has triggered the watchdog.
+    xTaskCreatePinnedToCore(taskSocketRecov, "Task Sockets", TASK_STACK_SIZE * 2, (uint32_t *)&socket_delay, 3, &socket_task_handle, 1);
+
+    if (blink_task_handle == NULL || socket_task_handle == NULL || http_task_handle == NULL)
+    {
+        Serial.println("tasks not running");
+        ESP.restart();
     }
 }
 
@@ -237,8 +256,10 @@ void initRTOS()
  *       If the queue is full, the function calls `deleteMAC.php?key=<mac>`, resets
  *       the queue, and clears recovery counters.
  */
-int socketRecovery(char *IP, char *cmd2Send, char *location)
+int socketRecovery(const char *IP, char *cmd2Send, char *location)
 {
+    socket_t socketQue;
+
     if (QueSocket_Handle == NULL)
         Serial.println("QueSocket_Handle failed");
     else
@@ -264,7 +285,7 @@ int socketRecovery(char *IP, char *cmd2Send, char *location)
             {
                 Serial.printf("ip not found ipMap %s\n", IP);
             }
-            xQueueReset(QueSocket_Handle); // clear stale entries in queue since it is full
+            xQueueReset(QueSocket_Handle); // Drop queued retries so recovery can restart from a clean state.
             failSocket = retry = recoveredSocket = 0;
         }
         return ret;
@@ -302,24 +323,25 @@ int socketRecovery(char *IP, char *cmd2Send, char *location)
 
 void taskSQL_HTTP(void *pvParameters)
 {
+    httpMsg_t message;
     HTTPClient http;
-    // mysql includes
+    // Dedicated client used by HTTPClient for SQL/PHP requests.
     WiFiClient client_sql;
     String serverName = phpServerIP + "post-esp-data.php";
-    int passPost = passSocket, recovered = 0;
+    passPost = passSocket;
+    int recovered = 0;
     uint32_t http_delay = *((uint32_t *)pvParameters);
     TickType_t xDelay = http_delay / portTICK_PERIOD_MS;
     Serial.printf("Task Post SQL running on CoreID:%d xDelay:%u ms Free Bytes: %d\n",
                   xPortGetCoreID(), (unsigned int)xDelay, uxTaskGetStackHighWaterMark(http_task_handle) * WORDS_PER_BYTE);
-
     for (;;)
     {
         if (QueHTTP_Handle != NULL)
         {
-            int ret = xQueueReceive(QueHTTP_Handle, &message, portMAX_DELAY); // wait for message
+            int ret = xQueueReceive(QueHTTP_Handle, &message, portMAX_DELAY); // Block until work is available.
             if (ret == pdPASS)
             {
-                //  "take" blocks calls to esp restart while messages are onh queue see queStat()
+                // Hold the mutex so restart logic waits until this HTTP transaction finishes.
                 xSemaphoreTake(xMutex_http, portMAX_DELAY);
                 http.begin(client_sql, serverName.c_str());
                 http.addHeader("Content-Type", "application/x-www-form-urlencoded");
@@ -335,38 +357,33 @@ void taskSQL_HTTP(void *pvParameters)
                 else
                 {
                     Serial.printf("last insert failed %d\n", httpResponseCode);
-                    passSocket--;
-                    // once tested remove the following lines
+                    // Stop the timer immediately so the failed insert can be inspected in place.
                     http.end();
                     String reason = "last insert failed ";
                     disableTimer(reason);
                     continue;
-                    //
 
                     String phpScript = "delete.php?key=" + (String)message.key;
                     performHttpGet(phpScript.c_str());
                     Serial.printf("php Script %s\n", phpScript.c_str());
-                    // failPost++;
                     int rc = deleteRow(phpScript);
                     Serial.printf("rc %d\n", rc);
                     Serial.printf("HTTP Error rc: %d %s %d \n", httpResponseCode, message.line, message.key);
-                    //  Serial.printf("passed %d  failed %d ", passSocket failPost);
                     int ret = xQueueSend(QueHTTP_Handle, (void *)&message, 0); // send message back to queue
                     if (ret == pdTRUE)
                     {
                         recovered++;
                         passPost++;
-                    } //
-                    Serial.printf("recoverd %d \n", recovered); // checked mySQL and the entry exists
+                    }
+                    Serial.printf("recovered %d \n", recovered); // Confirmed in MySQL that the row exists after recovery.
                     http.end();
                 }
-                //  http.end();
                 vTaskDelay(xDelay);
                 xSemaphoreGive(xMutex_http);
             }
             else if (ret == pdFALSE)
                 Serial.println("The setSQL_HTTP was unable to receive data from the Queue");
-        } // Sanity check
+        }
     }
 }
 /**
@@ -395,7 +412,7 @@ void taskSQL_HTTP(void *pvParameters)
  */
 void taskSocketRecov(void *pvParameters)
 {
-    // moving the following task to core 0 cause task to trigger internal WD timer ??
+    // Core 1 avoids the watchdog resets seen when this work ran on core 0.
 
     socket_t socketQue;
     uint32_t socket_delay = *((uint32_t *)pvParameters);
@@ -409,8 +426,7 @@ void taskSocketRecov(void *pvParameters)
         {
             if (xQueueReceive(QueSocket_Handle, &socketQue, portMAX_DELAY) == pdPASS)
             {
-                //"take" blocks calls to esp restart when messages are on queue
-                // see queStat()
+                // Keep restart logic from interrupting an in-flight socket recovery.
                 xSemaphoreTake(xMutex_sock, portMAX_DELAY);
                 vTaskDelay(xDelay);
                 retry++;
@@ -424,10 +440,10 @@ void taskSocketRecov(void *pvParameters)
                     updateBlynk();
                     Serial.printf("Recovered last network fail for host:%s waiting %d space left %d \n", socketQue.ipAddr,
                                   uxQueueMessagesWaiting(QueSocket_Handle), uxQueueSpacesAvailable(QueSocket_Handle));
-                    Serial.printf("passSocket %d failSocket %d  recovered %d retry %d \n", passSocket, failSocket, recoveredSocket, retry);
+                    Serial.printf("passSocket %d failSocket %d  recovered %d retry %d \n", passSocket - 1, failSocket, recoveredSocket, retry);
                 }
                 else
-                    socketRecovery(socketQue.ipAddr, socketQue.cmd, socketQue.location); //  write Fail to que here for recovery****
+                    socketRecovery(socketQue.ipAddr, socketQue.cmd, socketQue.location); // Requeue failed recovery work for another attempt.
 
                 xSemaphoreGive(xMutex_sock);
             }
@@ -476,7 +492,7 @@ void taskSocketRecov(void *pvParameters)
  * - `tokens` must be valid and contain at least 5 elements.
  * - Indices are intentionally 1-based in this code path. (index 0 is used for sensor id)
  */
-void setupHTTP_request(const String &sensorName, const String &sensorLocation, float tokens[],int &passSocket)
+void setupHTTP_request(const String &sensorName, const String &sensorLocation, float tokens[], int &passSocket)
 {
     httpMsg_t message;
     int retryCnt = tokens[4];
@@ -492,7 +508,7 @@ void setupHTTP_request(const String &sensorName, const String &sensorLocation, f
         httpRequestData += "&value3=" + String(tokens[3]);
         httpRequestData += "&value4=" + String(passSocket);
         httpRequestData += "&value5=" + String(retryCnt);
-
+        
         if (httpRequestData.length() >= sizeof(message.line))
         {
             Serial.printf("setupHTTP_request: payload too long (%u >= %u)\n",
@@ -502,10 +518,11 @@ void setupHTTP_request(const String &sensorName, const String &sensorLocation, f
             return;
         }
 #ifdef DEBUG
+      //  Serial.printf("pid %d %d waiting %d http %s\n", passSocket,passPost, uxQueueMessagesWaiting(QueHTTP_Handle), httpRequestData.c_str());
         Serial.printf("pid %d waiting %d http %s\n", passSocket, uxQueueMessagesWaiting(QueHTTP_Handle), httpRequestData.c_str());
 #endif
 
-        httpRequestData.toCharArray(message.line, sizeof(message.line)); // bounded + null-terminated
+        httpRequestData.toCharArray(message.line, sizeof(message.line)); // Copies with bounds checking and a trailing null.
         message.key = passSocket;
         int ret = xQueueSend(QueHTTP_Handle, (void *)&message, 0);
         if (ret == errQUEUE_FULL)
@@ -569,9 +586,14 @@ void taskBlink(void *pvParameters)
  * @note This helper briefly takes both mutexes to ensure in-flight queue work
  *       has completed, then releases both before returning.
  */
-bool queStat()
+bool waitForQueuesToDrain()
 {
+    // Wait for both queues to empty before taking their mutexes.
     unsigned long timeout = millis();
+    uint32_t http_delay = HTTP_DELAY_MS;
+    TickType_t xDelayHTTP = http_delay / portTICK_PERIOD_MS;
+    uint32_t socket_delay = SOCKET_DELAY_MS;
+    TickType_t xDelaySocket = socket_delay / portTICK_PERIOD_MS;
 
     while (uxQueueMessagesWaiting(QueSocket_Handle) > 0 || uxQueueMessagesWaiting(QueHTTP_Handle) > 0)
     {
@@ -579,18 +601,19 @@ bool queStat()
         {
             Serial.println(">>> Queue Timeout!");
             ESP.restart();
-            return false;
         }
         Serial.println("Queues are busy...");
         vTaskDelay(1000 / portTICK_PERIOD_MS);
     }
     Serial.println("Queues are clear...");
 
-    // if the tasks are running will do a non-block wait unit its done
-    xSemaphoreTake(xMutex_sock, portMAX_DELAY);
-    xSemaphoreTake(xMutex_http, portMAX_DELAY);
+    if (xSemaphoreTake(xMutex_sock, xDelaySocket) == pdFALSE)
+        return false; // Socket task is still holding the mutex.
+    if (xSemaphoreTake(xMutex_http, xDelayHTTP) == pdFALSE)
+        return false;
+
     Serial.println("All tasks complete");
-    //now release both Semaphores
+    // Release both mutexes after confirming all queued work is finished.
     xSemaphoreGive(xMutex_http);
     xSemaphoreGive(xMutex_sock);
 
@@ -616,7 +639,7 @@ int validateLastInsertRow(const int row, const String &msg)
     String phpScript = "parse.php?key=" + (String)(row);
     String lastInsertResults = performHttpGet(phpScript.c_str());
 
-    // Split `lastInsertResults` as "pid|key,..." and verify insert bookkeeping.
+    // Parse `pid|key,...` so the row echoed by parse.php can be matched to the expected key.
     int index = lastInsertResults.indexOf("|");
     if (index < 0)
     {
@@ -628,9 +651,8 @@ int validateLastInsertRow(const int row, const String &msg)
     String pid = lastInsertResults.substring(0, index);
     int index1 = lastInsertResults.indexOf(",");
     String key = lastInsertResults.substring(index + 1, index1);
-    float tokens[5];
 
-    //  test case
+    // Manual mismatch simulation used during recovery debugging.
     // if (pid == "5")
     //     key = "0";
 
@@ -642,60 +664,62 @@ int validateLastInsertRow(const int row, const String &msg)
         disableTimer(reason);
         Serial.printf("passPost %d pid %s key %s\n", row, pid.c_str(), key.c_str());
         return 1;
-        // needs debug 
-        HTTPClient http;
-        WiFiClient client_sql;
-        String serverName = phpServerIP + "post-esp-data.php";
+        //  Preserve the debugging branch below; current behavior exits early after logging the mismatch.
+        // float tokens[5];
 
-        String tmp, sensor, location, value;
-        Serial.printf("parse.php lastInsertResults %s last insert failed .%s. .%s.\n", lastInsertResults.c_str(), pid.c_str(), key.c_str());
-        Serial.printf("msg %s\n serveName %s\n", msg.c_str(), serverName.c_str());
+        // HTTPClient http;
+        // WiFiClient client_sql;
+        // String serverName = phpServerIP + "post-esp-data.php";
 
-        // api_key=tPmAT5Ab3j7F9&sensor=BME280&location=Laundry Room&value1=80.53&value2=59.51&value3=230.65&value4=6&value5=0
+        // String tmp, sensor, location, value;
+        // Serial.printf("parse.php lastInsertResults %s last insert failed .%s. .%s.\n", lastInsertResults.c_str(), pid.c_str(), key.c_str());
+        // Serial.printf("msg %s\n serveName %s\n", msg.c_str(), serverName.c_str());
 
-        sensor = find(msg, "sensor=");
-        Serial.println(sensor);
+        // // api_key=tPmAT5Ab3j7F9&sensor=BME280&location=Laundry Room&value1=80.53&value2=59.51&value3=230.65&value4=6&value5=0
 
-        location = find(msg, "location=");
-        Serial.println(location);
+        // sensor = find(msg, "sensor=");
+        // Serial.println(sensor);
 
-        for (int i = 1; i < 6; i++)
-        {
-            tmp = ("value" + String(i) + "=");
-            value = find(msg, tmp);
-            Serial.printf("i %d value %s \n", i, value.c_str());
-            tokens[i] = atof(value.c_str());
-        }
+        // location = find(msg, "location=");
+        // Serial.println(location);
 
-        String httpRequestData = "api_key=" + phpKey;
-        httpRequestData += "&sensor=" + sensor;
-        httpRequestData += "&location=" + location;
-        httpRequestData += "&value1=" + String(tokens[0]);
-        httpRequestData += "&value2=" + String(tokens[1]);
-        httpRequestData += "&value3=" + String(tokens[2]);
-        httpRequestData += "&value4=" + String(row + 1);
-        httpRequestData += "&value5=" + String("1");
+        // for (int i = 1; i < 6; i++)
+        // {
+        //     tmp = ("value" + String(i) + "=");
+        //     value = find(msg, tmp);
+        //     Serial.printf("i %d value %s \n", i, value.c_str());
+        //     tokens[i] = atof(value.c_str());
+        // }
 
-        httpRequestData.toCharArray(message.line, sizeof(message.line)); // bounded + null-terminated
-        return 0;
-        http.begin(client_sql, serverName.c_str());
-        http.addHeader("Content-Type", "application/x-www-form-urlencoded");
-        int httpResponseCode = http.POST(message.line);
-        http.end();
-        if (httpResponseCode == 200)
-        {
-            Serial.println("retry passed");
-            return 0;
-        }
+        // String httpRequestData = "api_key=" + phpKey;
+        // httpRequestData += "&sensor=" + sensor;
+        // httpRequestData += "&location=" + location;
+        // httpRequestData += "&value1=" + String(tokens[0]);
+        // httpRequestData += "&value2=" + String(tokens[1]);
+        // httpRequestData += "&value3=" + String(tokens[2]);
+        // httpRequestData += "&value4=" + String(row + 1);
+        // httpRequestData += "&value5=" + String("1");
 
-        else
-        {
+        // httpRequestData.toCharArray(message.line, sizeof(message.line)); // Copies with bounds checking and a trailing null.
+        // return 0;
+        // http.begin(client_sql, serverName.c_str());
+        // http.addHeader("Content-Type", "application/x-www-form-urlencoded");
+        // int httpResponseCode = http.POST(message.line);
+        // http.end();
+        // if (httpResponseCode == 200)
+        // {
+        //     Serial.println("retry passed");
+        //     return 0;
+        // }
 
-            Serial.printf("retry failed rc %d\n", httpResponseCode);
-            String reason = "retry failed";
-            disableTimer(reason);
-            return 2;
-        }
+        // else
+        // {
+
+        //     Serial.printf("retry failed rc %d\n", httpResponseCode);
+        //     String reason = "retry failed";
+        //     disableTimer(reason);
+        //     return 2;
+        // }
     }
 }
 
@@ -739,8 +763,7 @@ void setTokens(int failCnt)
  *
  * Counts queued HTTP POST messages and, if any are pending, reports the backlog
  * together with the current queue capacity and pass counter. It then runs the
- * broader queue-status check, restarts the ESP32 if the queues remain unhealthy,
- * and disables the periodic timer to stop further work in a degraded state.
+ * broader queue-status check, restarts the ESP32.
   // pid 143024 waiting 6
   // que busy 1 space open 7 pid 143024
   // Queues are busy...
@@ -749,13 +772,13 @@ void setTokens(int failCnt)
   // timer disable
   // pid 143025 waiting 0
  */
-void queHealth()
+void checkQueueHealth()
 {
-    int cnt = uxQueueMessagesWaiting(QueHTTP_Handle);
+    UBaseType_t cnt = uxQueueMessagesWaiting(QueHTTP_Handle);
     if (cnt)
     {
         Serial.printf("que busy %d space open %d pid %d \n", cnt, uxQueueSpacesAvailable(QueHTTP_Handle), passSocket);
-        if (!queStat())
+        if (!waitForQueuesToDrain())
             ESP.restart();
     }
 }

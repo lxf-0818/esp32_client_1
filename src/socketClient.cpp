@@ -56,7 +56,7 @@ char * socketClient(char *espServer, String command);
 void upDateWidget(char *sensor, float tokens[]);
 void printTokens(float tokens[DEVICES][5]);
 void decrypt_to_cleartext(char *msg, uint16_t msgLen, byte iv[], char *cleartext);
-bool queStat();
+bool waitForQueuesToDrain();
 
 /**
  * @brief Establishes a socket connection to a server, sends a command, and processes the response.
@@ -253,7 +253,7 @@ char *socketClient(char *espServer, const String &command)
     {
         //  did you call free()?
         // Blynk.logEvent("mem_alloc_failed");
-        queStat();
+        waitForQueuesToDrain();
         ESP.restart();
     }
     // RST is fire-and-forget: server reboots immediately, so no response payload is expected.

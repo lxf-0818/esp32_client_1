@@ -8,3 +8,5 @@
 #define VFAIL V20
 #define VRETRY V34
 #define BOOT V10
+#define V_TERM V49
+#define V_MSG V47

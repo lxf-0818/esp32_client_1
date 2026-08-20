@@ -32,7 +32,7 @@ refreshWidgets() currently:
 4. updates Blynk counters and status pins (V51, V7, V20, V19, V34, V47)
 5. updates the terminal only when the roster payload changes
 
-If the HTTP fetch fails or the parsed sensor count is zero, the function writes a status message to V39 and returns early.
+If the HTTP fetch fails or the parsed sensor count is zero, the function writes a status message to V47 and returns early.
 
 ## Blynk handlers
 - BLYNK_CONNECTED(): resets counters, loads boot metadata, and initializes the row count from the backend.
@@ -84,7 +84,6 @@ The parser expands grouped names like BME_BMP into separate keys such as BME_0 a
 - V19 / VRECOV: recoveredSocket counter
 - V20 / VFAIL: failSocket counter
 - V34 / VRETRY: retry counter
-- V39: status/error messages
 - V43: ESP32 supply voltage display
 - V47: last status message
 - V49: terminal input/output
