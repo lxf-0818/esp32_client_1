@@ -225,7 +225,10 @@ void initRTOS()
         Serial.println("Queue could not be created..");
 
     if (QueHTTP_Handle == NULL || QueSocket_Handle == NULL)
+    {
+        waitForQueuesToDrain();
         ESP.restart();
+    }
 
     xTaskCreatePinnedToCore(taskBlink, "Task Blink", TASK_STACK_SIZE, (uint32_t *)&blink_delay, 1, &blink_task_handle, 0);
     xTaskCreatePinnedToCore(taskSQL_HTTP, "Task HTTP", TASK_STACK_SIZE * 2, (uint32_t *)&http_delay, 2, &http_task_handle, 0);

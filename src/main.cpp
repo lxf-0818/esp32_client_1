@@ -474,12 +474,10 @@ void ICACHE_RAM_ATTR lwdtcb(void)
   }
   // if (timerDisable == true)
   //   return;
-
   int prevPass = passSocket;
   delay((REFRESH_TIME * 1000) + 100);
   if (prevPass == passSocket)
   {
-    //Serial.printf("system not healthy\n");
     Blynk.virtualWrite(V_MSG, "3rd_WDTimer: System not Healthy");
     waitForQueuesToDrain();
     ESP.restart();
@@ -1510,8 +1508,8 @@ void disableTimer(const String &reason)
   Blynk.virtualWrite(V_MSG, reason);
   timerDisable = true;
 
-  Serial.println("timer disable");
-  timer.disable(timerID1);
+  Serial.println("timer disable is commented out");
+ // timer.disable(timerID1);
 }
 void enableTimer()
 {
