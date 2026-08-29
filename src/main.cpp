@@ -76,6 +76,7 @@
 #include <LittleFS.h>
 #include <tuple>
 #include <iostream>
+
 #define INPUT_BUFFER_LIMIT 2048
 #define SCREEN_WIDTH 128 // OLED display width, in pixels
 #define SCREEN_HEIGHT 64 // OLED display height, in pixels
@@ -129,6 +130,7 @@ void disableTimer(const String &reason);
 void disableTimer();
 
 int checkQueueHealth();
+
 
 /**
  * @brief Network metadata for one sensor entry.
@@ -204,6 +206,7 @@ void setup()
   char auth[50];
   char ssid[40], pass[40];
   String tmp;
+  
   if (decryptWifiCredentials(auth, ssid, pass))
     ESP.restart();
   Blynk.begin(auth, ssid, pass);
@@ -472,13 +475,13 @@ void ICACHE_RAM_ATTR lwdtcb(void)
     waitForQueuesToDrain();
     ESP.restart();
   }
-  // if (timerDisable == true)
-  //   return;
+  
   int prevPass = passSocket;
-  delay((REFRESH_TIME * 1000) + 100);
+  const TickType_t xDelay = pdMS_TO_TICKS((REFRESH_TIME * 1000) + 100);
+  vTaskDelay(xDelay);
   if (prevPass == passSocket)
   {
-    Blynk.virtualWrite(V_MSG, "3rd_WDTimer: System not Healthy");
+    Blynk.virtualWrite(V_MSG, "3rd_WDTimer: System not running");
     waitForQueuesToDrain();
     ESP.restart();
   }
